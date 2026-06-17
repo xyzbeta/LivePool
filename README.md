@@ -2,6 +2,27 @@
 
 IPTV 电视直播源自动采集、校验、去重、分类、m3u8 生成系统。提供 Web 管理面板和 REST API。
 
+## 截图
+
+<table>
+  <tr>
+    <td><img src="images/1-仪表盘.png" alt="仪表盘" width="400"/></td>
+    <td><img src="images/2-频道列表.png" alt="频道列表" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>📊 仪表盘</b></td>
+    <td align="center"><b>📋 频道列表</b></td>
+  </tr>
+  <tr>
+    <td><img src="images/3-采集源.png" alt="采集源管理" width="400"/></td>
+    <td><img src="images/4-用户管理.png" alt="用户管理" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>📡 采集源管理</b></td>
+    <td align="center"><b>👥 用户管理</b></td>
+  </tr>
+</table>
+
 ## 功能
 
 - **采集** — 支持多源并发爬取（GitHub IPTV 仓库、公开 m3u8 链接），同时支持本地 m3u8/txt 种子文件导入
