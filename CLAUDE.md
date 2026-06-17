@@ -134,7 +134,7 @@ docker compose --profile scheduler up -d  # Web + 定时任务
 
 - **Web 服务**: Dockerfile CMD `python3 src/main.py web`（默认），端口 8008，`/api/stats` 健康检查
 - **定时任务**: 独立容器，`command: ["python3", "src/main.py", "schedule"]`，通过 `--profile scheduler` 启用
-- 持久化卷：config.yaml、sources、output、data、logs（两容器共享）
+- 持久化卷：config.yaml（只读）、data/（全量数据，两容器共享）
 - 隐式并发陷阱：两容器都使用 `livepool.db`，调度器运行时 Web 容器的 DB 访问会与调度器的 `replace_all` 冲突。当前无锁机制
 
 ## 未使用的依赖（维护债务）
