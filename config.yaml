@@ -57,13 +57,13 @@ epg:
 generator:
   https_only: false                        # 设为 true 则只输出 HTTPS 链接的频道
   main_file: live.m3u8                     # 主输出文件名
-  output_dir: data/output                  # 输出目录
+  output_dir: data                          # 输出目录
   per_group: true                          # 是否同时按分组输出独立 m3u8 文件
-  per_group_dir: data/output/by_group      # 分组文件输出目录
+  per_group_dir: data/by_group             # 分组文件输出目录
 
 # ---- 日志 ----
 logging:
-  dir: data/logs                           # 日志文件目录
+  dir: data                                # 日志文件目录（app.log 直接写入 data/）
   level: INFO                              # 日志级别：DEBUG / INFO / WARNING / ERROR
   max_files: 7                             # 日志文件保留天数
 

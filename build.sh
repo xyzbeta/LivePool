@@ -4,7 +4,9 @@
 # 使用方式: ./build.sh [服务器IP] [SSH端口]
 # 示例:     ./build.sh 10.192.172.2 40022
 #
-# 前提: 服务器已安装 docker + docker compose
+# 前提:
+#   本地: 已安装 docker
+#   服务器: 已安装 docker，/serverhub/livepool/ 下有 config.yaml + data/
 # =============================================================================
 set -e
 
@@ -30,27 +32,38 @@ echo ""
 echo "========================================"
 echo " 3/4  同步配置文件"
 echo "========================================"
-$SCP_CMD docker-compose.yml config.yaml root@$SERVER_IP:/serverhub/livepool/
+$SCP_CMD config.yaml run.sh root@$SERVER_IP:/serverhub/livepool/
 
 echo ""
 echo "========================================"
 echo " 4/4  服务器加载镜像并重启"
 echo "========================================"
 $SSH_CMD root@$SERVER_IP "
+  set -e
   cd /serverhub/livepool
+
+  # 迁移旧数据到扁平结构
+  if [ -f data/output/live.m3u8 ] && [ ! -f data/live.m3u8 ]; then
+    echo '迁移数据到扁平结构...'
+    [ -f data/logs/app.log ] && mv data/logs/app.log data/app.log 2>/dev/null || true
+    [ -d data/output/by_group ] && mv data/output/by_group data/by_group 2>/dev/null || true
+    [ -d data/output/logos ] && mv data/output/logos data/logos 2>/dev/null || true
+    [ -f data/output/live.m3u8 ] && mv data/output/live.m3u8 data/live.m3u8 2>/dev/null || true
+    rm -rf data/output data/logs 2>/dev/null || true
+    mkdir -p data/by_group data/logos data/sources
+  fi
+
+  # 加载新镜像
   docker load -i livepool-image.tar
   rm -f livepool-image.tar
-  docker compose up -d
-  echo ''
-  echo '等待健康检查...'
-  for i in \$(seq 1 10); do
-    sleep 3
-    STATUS=\$(curl -sf http://localhost:8008/api/health 2>/dev/null && echo ok || echo pending)
-    echo \"  [\${i}] health: \$STATUS\"
-    [ \"\$STATUS\" = \"ok\" ] && break
-  done
-  echo ''
-  docker ps --filter name=livepool --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+
+  # 停止旧容器（兼容 docker-compose 遗留）
+  docker stop livepool 2>/dev/null || true
+  docker rm livepool 2>/dev/null || true
+
+  # 启动新容器
+  chmod +x run.sh
+  JWT_SECRET=\$(cat .env 2>/dev/null | grep JWT_SECRET | cut -d= -f2) ./run.sh start
 "
 
 rm -f /tmp/livepool-image.tar

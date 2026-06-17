@@ -132,10 +132,24 @@ docker compose --profile scheduler up -d  # Web + 定时任务
 
 ## Docker 架构
 
-- **Web 服务**: Dockerfile CMD `python3 src/main.py web`（默认），端口 8008，`/api/stats` 健康检查
-- **定时任务**: 独立容器，`command: ["python3", "src/main.py", "schedule"]`，通过 `--profile scheduler` 启用
-- 持久化卷：config.yaml（只读）、data/（全量数据，两容器共享）
-- 隐式并发陷阱：两容器都使用 `livepool.db`，调度器运行时 Web 容器的 DB 访问会与调度器的 `replace_all` 冲突。当前无锁机制
+- **单容器部署**: Dockerfile CMD `python3 src/main.py web`（默认），端口 8008，`/api/health` 健康检查
+- **调度器内嵌**: APScheduler 在 Web 进程启动时自动运行（`api.py:startup`），无需独立容器
+- 持久化卷：`config.yaml:ro`（配置）、`data/`（全量数据：数据库、m3u8、日志、图标缓存、种子文件）
+
+### 数据目录结构
+
+```
+data/
+├── livepool.db          # SQLite 数据库
+├── live.m3u8            # 主播放列表
+├── by_group/            # 分组播放列表
+├── logos/               # 频道图标缓存
+├── sources/             # 本地种子文件
+├── app.log              # 运行日志
+├── last_check.json      # 校验退避记录
+├── epg_cache.xml        # EPG 节目数据缓存
+└── stats_snapshot.json  # 统计快照
+```
 
 ## 未使用的依赖（维护债务）
 

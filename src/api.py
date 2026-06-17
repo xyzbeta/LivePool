@@ -250,7 +250,7 @@ _channels_cache: Optional[List[ChannelRecord]] = None
 _cache_time: float = 0.0
 CACHE_TTL = 60  # seconds
 _RE_GROUP_TITLE = re.compile(r'group-title="([^"]*)"')
-LOGO_CACHE_DIR = PROJECT_ROOT / "data" / "output" / "logos"
+LOGO_CACHE_DIR = PROJECT_ROOT / "data" / "logos"
 
 
 def _get_channels() -> List[ChannelRecord]:

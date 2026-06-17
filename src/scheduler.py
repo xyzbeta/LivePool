@@ -221,6 +221,6 @@ def print_cron_expression():
     cfg = get_scheduler_config()
     cron_expr = cfg.get("cron", "0 */6 * * *")
     project_root = __file__.rsplit("/src/", 1)[0]
-    cmd = f"{cron_expr} cd {project_root} && {sys.executable} src/main.py run >> data/logs/cron.log 2>&1"
+    cmd = f"{cron_expr} cd {project_root} && {sys.executable} src/main.py run >> data/cron.log 2>&1"
     print(f"# Add this line to crontab (crontab -e):")
     print(cmd)
