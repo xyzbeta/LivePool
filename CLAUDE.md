@@ -126,7 +126,7 @@ docker compose --profile scheduler up -d  # Web + 定时任务
 
 - `src/` 是 Python 包，所有内部导入使用 **相对导入**（`from . import ...`）
 - 流水线全异步，validator 使用 `asyncio.Semaphore` 控制并发数
-- 数据目录：`data/`（持久化）、`output/`（生成的 m3u8 和 logo 缓存）、`sources/`（本地种子文件）、`logs/`（运行日志）
+- 所有持久化数据统一存放在 `data/` 目录下（子目录：`data/output/`、`data/logs/`、`data/sources/`、`data/output/logos/`）
 - 无测试框架、无 lint 配置、无 CI pipeline
 - **Dead-URL 退避**: 连续 3 次失败后跳过该 URL，退避时间指数增长。存储文件 `data/last_check.json`
 

@@ -45,8 +45,8 @@ collector:
     type: raw_m3u
     urls:
     - https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
-  local_seeds:                             # 本地种子文件（放入 sources/ 目录）
-  - sources/test_seed.m3u8
+  local_seeds:                             # 本地种子文件（放入 data/sources/ 目录）
+  - data/sources/test_seed.m3u8
   timeout: 30                              # 采集远程源的单次 HTTP 超时（秒）
 
 # ---- EPG 节目指南（通过 Web UI → 采集源管理页配置）----
@@ -57,13 +57,13 @@ epg:
 generator:
   https_only: false                        # 设为 true 则只输出 HTTPS 链接的频道
   main_file: live.m3u8                     # 主输出文件名
-  output_dir: output                       # 输出目录
+  output_dir: data/output                  # 输出目录
   per_group: true                          # 是否同时按分组输出独立 m3u8 文件
-  per_group_dir: output/by_group           # 分组文件输出目录
+  per_group_dir: data/output/by_group      # 分组文件输出目录
 
 # ---- 日志 ----
 logging:
-  dir: logs                                # 日志文件目录
+  dir: data/logs                           # 日志文件目录
   level: INFO                              # 日志级别：DEBUG / INFO / WARNING / ERROR
   max_files: 7                             # 日志文件保留天数
 

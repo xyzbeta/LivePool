@@ -83,7 +83,7 @@ def _build_crawlers() -> List:
 def _import_local_seeds() -> List[StreamEntry]:
     """Import stream entries from local seed files in sources/ directory."""
     entries: List[StreamEntry] = []
-    sources_dir = PROJECT_ROOT / "sources"
+    sources_dir = PROJECT_ROOT / "data" / "sources"
 
     local_seeds = get_local_seeds()
     if not local_seeds and sources_dir.exists():
@@ -92,6 +92,14 @@ def _import_local_seeds() -> List[StreamEntry]:
             [str(p.relative_to(PROJECT_ROOT)) for p in sources_dir.glob("*.m3u8")]
             + [str(p.relative_to(PROJECT_ROOT)) for p in sources_dir.glob("*.txt")]
         )
+    if not local_seeds:
+        # Fallback: project-root sources/ (dev/repo default)
+        legacy_dir = PROJECT_ROOT / "sources"
+        if legacy_dir.exists():
+            local_seeds = sorted(
+                [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.m3u8")]
+                + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.txt")]
+            )
 
     for seed_path_str in local_seeds:
         seed_path = PROJECT_ROOT / seed_path_str

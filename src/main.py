@@ -12,13 +12,32 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def _migrate_data_dirs():
+    """Migrate old project-root paths to new consolidated data/ structure."""
+    import shutil
+    old_dirs = [
+        (PROJECT_ROOT / "output", PROJECT_ROOT / "data" / "output"),
+        (PROJECT_ROOT / "logs", PROJECT_ROOT / "data" / "logs"),
+        (PROJECT_ROOT / "sources", PROJECT_ROOT / "data" / "sources"),
+    ]
+    for old_path, new_path in old_dirs:
+        if old_path.exists() and not new_path.exists():
+            try:
+                if old_path.is_dir() and any(old_path.iterdir()):
+                    shutil.copytree(old_path, new_path, dirs_exist_ok=True)
+                    print(f"  Migrated {old_path.name}/ → data/{old_path.name}/")
+                old_path.rename(old_path.with_suffix(old_path.suffix + ".migrated"))
+            except Exception:
+                pass
+
+
 def setup_logging():
     """Configure logging based on config."""
-    from src.config import get_logging_config
+    from src.config import PROJECT_ROOT, get_logging_config
 
     cfg = get_logging_config()
     level = getattr(logging, cfg.get("level", "INFO").upper(), logging.INFO)
-    log_dir = Path(cfg.get("dir", "logs"))
+    log_dir = PROJECT_ROOT / cfg.get("dir", "data/logs")
     log_dir.mkdir(parents=True, exist_ok=True)
 
     fmt = logging.Formatter(
@@ -104,6 +123,9 @@ def main():
     sub.add_parser("web", help="Start FastAPI web server with dashboard")
 
     args = parser.parse_args()
+
+    # Migrate legacy data directories to consolidated data/ structure
+    _migrate_data_dirs()
 
     setup_logging()
 

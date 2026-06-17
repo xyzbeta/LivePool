@@ -17,7 +17,7 @@ from .config import PROJECT_ROOT, get_generator_config
 logger = logging.getLogger(__name__)
 
 LOGOS_FILE = PROJECT_ROOT / "data" / "logos.json"
-LOGOS_CACHE_DIR = PROJECT_ROOT / "output" / "logos"
+LOGOS_CACHE_DIR = PROJECT_ROOT / "data" / "output" / "logos"
 
 # Channel state store key
 CHANNELS_STORE_KEY = "channels"

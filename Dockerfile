@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p logs output data sources
+RUN mkdir -p data/logs data/output data/sources data/output/by_group data/output/logos
 
 EXPOSE 8008
 
