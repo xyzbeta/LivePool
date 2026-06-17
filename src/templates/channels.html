@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="page-title">📋 频道列表 <span style="font-weight:400;font-size:14px;color:var(--text-muted)">共 {{ total }} 个</span></h1>
+
+<!-- Toolbar -->
+<form class="toolbar" method="get" action="/channels">
+  <input type="text" name="search" placeholder="搜索频道名或 URL..." value="{{ search }}">
+  <select name="group">
+    <option value="">全部分组</option>
+    {% for g in groups %}
+    <option value="{{ g }}" {% if group == g %}selected{% endif %}>{{ g }}</option>
+    {% endfor %}
+  </select>
+  <select name="status">
+    <option value="">全部状态</option>
+    <option value="alive" {% if status == 'alive' %}selected{% endif %}>存活</option>
+    <option value="dead" {% if status == 'dead' %}selected{% endif %}>死链</option>
+    <option value="timeout" {% if status == 'timeout' %}selected{% endif %}>超时</option>
+    <option value="error" {% if status == 'error' %}selected{% endif %}>错误</option>
+    <option value="audio" {% if status == 'audio' %}selected{% endif %}>纯音频</option>
+  </select>
+  <select name="favorite">
+    <option value="">全部收藏</option>
+    <option value="yes" {% if favorite == 'yes' %}selected{% endif %}>已收藏</option>
+    <option value="no" {% if favorite == 'no' %}selected{% endif %}>未收藏</option>
+  </select>
+  <button type="submit" class="btn btn-primary">🔍 筛选</button>
+  {% if group or status or search or favorite %}
+  <a href="/channels" class="btn btn-outline">✕ 清除</a>
+  {% endif %}
+  <a href="/api/m3u8{% if group %}/{{ group }}{% endif %}" class="btn btn-success" style="margin-left:auto;">
+    ⬇ 导出当前筛选
+  </a>
+</form>
+
+<!-- Table -->
+{% if channels %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:36px;">图标</th>
+        <th style="width:36px;text-align:center;">收藏</th>
+        <th><a href="?sort=name&order={{ 'desc' if sort == 'name' and order == 'asc' else 'asc' }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">频道名 {{ '▼' if sort == 'name' and order == 'desc' else '▲' if sort == 'name' else '' }}</a></th>
+        <th>分组</th>
+        <th>状态</th>
+        <th><a href="?sort=latency&order={{ 'desc' if sort == 'latency' and order == 'asc' else 'asc' }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">延迟 {{ '▼' if sort == 'latency' and order == 'desc' else '▲' if sort == 'latency' else '' }}</a></th>
+        <th><a href="?sort=resolution&order={{ 'desc' if sort == 'resolution' and order == 'asc' else 'asc' }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">分辨率 {{ '▼' if sort == 'resolution' and order == 'desc' else '▲' if sort == 'resolution' else '' }}</a></th>
+        <th>质量</th>
+        <th>URL</th>
+        <th><a href="?sort=last_check&order={{ 'desc' if sort == 'last_check' and order == 'asc' else 'asc' }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">最后检测 {{ '▼' if sort == 'last_check' and order == 'desc' else '▲' if sort == 'last_check' else '' }}</a></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ch in channels %}
+      <tr>
+        <td style="text-align:center;vertical-align:middle;">
+          {% if ch._logo_url %}
+          <img src="{{ ch._logo_url }}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;background:var(--surface);" loading="lazy">
+          {% else %}
+          <span style="display:inline-block;width:28px;height:28px;border-radius:4px;background:var(--bg);"></span>
+          {% endif %}
+        </td>
+        <td style="text-align:center;vertical-align:middle;">
+          <span class="fav-star" data-id="{{ ch.id }}"
+                style="cursor:pointer;font-size:22px;line-height:1;transition:opacity .15s;
+                       {% if ch._is_favorited %}opacity:1;
+                       {% elif ch.status.value == 'alive' %}opacity:0.2;
+                       {% else %}opacity:0.1;{% endif %}"
+                onclick="toggleFav(this)">⭐</span>
+        </td>
+        <td style="font-weight:600;">{{ ch.name }}</td>
+        <td>{{ ch.group }}</td>
+        <td>
+          {% if ch.status.value == 'alive' %}
+          <span class="badge badge-alive">存活</span>
+          {% elif ch.status.value == 'dead' %}
+          <span class="badge badge-dead">死链</span>
+          {% elif ch.status.value == 'timeout' %}
+          <span class="badge badge-other">超时</span>
+          {% elif ch.status.value == 'audio' %}
+          <span class="badge badge-audio">纯音频</span>
+          {% elif ch.status.value == 'error' %}
+          <span class="badge badge-dead">错误</span>
+          {% else %}
+          <span class="badge badge-other">{{ ch.status.value }}</span>
+          {% endif %}
+        </td>
+        <td>{{ '%.0f' | format(ch.latency_ms) if ch.latency_ms else '-' }} ms</td>
+        <td>{{ ch.resolution or '-' }}</td>
+        <td>{% if ch.score > 0 %}<span class="quality-badge q-{{ 'excellent' if ch.score >= 120 else 'good' if ch.score >= 80 else 'fair' if ch.score >= 50 else 'poor' }}">{{ '优秀' if ch.score >= 120 else '良好' if ch.score >= 80 else '一般' if ch.score >= 50 else '较差' }}</span>{% else %}-{% endif %}</td>
+        <td><span class="url" title="{{ ch.url }}">{{ ch.url }}</span></td>
+        <td style="font-size:12px;">{{ ch.last_check[:16] | replace('T', ' ') if ch.last_check else '-' }}</td>
+        <td>
+          {% if ch.status.value == 'alive' %}
+          <button class="btn btn-sm btn-primary" onclick="openPlayer('{{ ch.url | e }}', '{{ ch.name | e }}')" style="font-size:11px;">▶</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?page={{ page-1 }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}">‹</a>
+  {% endif %}
+  {% for p in range(1, pages + 1) %}
+    {% if p <= 3 or p > pages - 3 or (p >= page - 1 and p <= page + 1) %}
+    <a href="?page={{ p }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" {% if p == page %}class="active"{% endif %}>{{ p }}</a>
+    {% elif p == 4 or p == pages - 3 %}
+    <span>…</span>
+    {% endif %}
+  {% endfor %}
+  {% if page < pages %}
+  <a href="?page={{ page+1 }}&group={{ group }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}">›</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty">
+  <h3>暂无频道数据</h3>
+  <p>请先运行采集任务，或调整筛选条件</p>
+  <a href="/channels" class="btn btn-outline" style="margin-top:12px;">查看全部</a>
+</div>
+{% endif %}
+
+<!-- Player modal -->
+<div id="player-overlay" class="modal-overlay" style="display:none;" onclick="closePlayer(event)">
+  <div class="modal" style="max-width:720px;padding:12px;" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span id="player-title" style="font-weight:600;">播放</span>
+      <button class="btn btn-sm btn-outline" onclick="closePlayer()">✕</button>
+    </div>
+    <div style="background:#000;border-radius:4px;min-height:300px;display:flex;align-items:center;justify-content:center;">
+      <video id="modal-video" controls style="width:100%;max-height:55vh;"></video>
+      <div id="player-hint" style="color:#666;text-align:center;padding:40px;">仅 HTTPS+CORS 兼容流可播放</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+var modalHls = null;
+function openPlayer(url, name) {
+  // HTTP streams: open in new tab for native browser HLS support
+  if (!url.startsWith('https://')) {
+    window.open(url, '_blank');
+    return;
+  }
+  // HTTPS streams: inline modal player
+  document.getElementById('player-overlay').style.display = 'flex';
+  document.getElementById('player-title').textContent = '▶ ' + name;
+  document.getElementById('player-hint').style.display = 'none';
+  var video = document.getElementById('modal-video');
+  if (modalHls) { modalHls.destroy(); modalHls = null; }
+  if (Hls.isSupported()) {
+    modalHls = new Hls();
+    modalHls.loadSource(url);
+    modalHls.attachMedia(video);
+    modalHls.on(Hls.Events.MANIFEST_PARSED, function() { video.play(); });
+    modalHls.on(Hls.Events.ERROR, function() {
+      document.getElementById('player-hint').style.display = 'block';
+      document.getElementById('player-hint').textContent = '播放失败 - 流可能不可用';
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = url; video.play();
+  }
+}
+function closePlayer(e) {
+  if (e && e.target !== document.getElementById('player-overlay')) return;
+  document.getElementById('player-overlay').style.display = 'none';
+  var video = document.getElementById('modal-video');
+  video.pause(); video.src = '';
+  if (modalHls) { modalHls.destroy(); modalHls = null; }
+}
+
+// ---- Favorite toggle ----
+async function toggleFav(el) {
+  const id = el.dataset.id;
+  try {
+    const resp = await fetch(`/api/channels/${encodeURIComponent(id)}/favorite`, {method:'POST'});
+    const data = await resp.json();
+    // 更新星标状态（emoji 不支持 color，用透明度区分）
+    el.style.opacity = data.favorited ? '1' : '0.2';
+    // 如果在"已收藏"筛选下取消收藏，或"未收藏"下收藏，移除该行
+    const params = new URLSearchParams(location.search);
+    if ((params.get('favorite') === 'yes' && !data.favorited) ||
+        (params.get('favorite') === 'no' && data.favorited)) {
+      el.closest('tr').style.transition = 'opacity .3s';
+      el.closest('tr').style.opacity = '0';
+      setTimeout(() => el.closest('tr').remove(), 300);
+    }
+  } catch(e) {
+    console.error('Favorite toggle failed', e);
+  }
+}
+</script>
+
+{% endblock %}

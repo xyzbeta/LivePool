@@ -1,0 +1,15 @@
+#EXTM3U
+#EXTINF:-1 group-title="央视频道" tvg-id="cctv1",CCTV-1 综合
+https://cctvwbndtxy.liveplay.myqcloud.com/cctvwbnd/cdrmcctv1_2/index.m3u8
+#EXTINF:-1 group-title="央视频道" tvg-id="cctv2",CCTV-2 财经
+https://cctvwbndtxy.liveplay.myqcloud.com/cctvwbnd/cdrmcctv2_2/index.m3u8
+#EXTINF:-1 group-title="央视频道" tvg-id="cctv13",CCTV-13 新闻
+https://cctvwbndtxy.liveplay.myqcloud.com/cctvwbnd/cdrmcctv13_2/index.m3u8
+#EXTINF:-1 group-title="卫视频道" tvg-id="hunan",湖南卫视
+https://live.v1.mgtv.com/v1/hunan/hunantv.m3u8
+#EXTINF:-1 group-title="卫视频道" tvg-id="zhejiang",浙江卫视
+https://live.v1.mgtv.com/v1/zhejiang/zhejiangtv.m3u8
+#EXTINF:-1 group-title="地方频道",北京新闻
+http://dead-link-example.local/stream.m3u8
+#EXTINF:-1 group-title="央视频道",CCTV-5 体育 (dead test)
+http://192.168.255.255:9999/nonexistent.m3u8

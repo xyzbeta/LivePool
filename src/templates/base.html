@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} — LivePool</title>
+  <link rel="stylesheet" href="/static/style.css?v=3">
+<script>
+(function(){
+  var m = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', m);
+  window.toggleTheme = function(){
+    m = m === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', m);
+    localStorage.setItem('theme', m);
+  };
+})();
+</script>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="brand">📺 LivePool</a>
+  <a href="/" {% if title == '仪表盘' %}class="active"{% endif %}>仪表盘</a>
+  <a href="/channels" {% if title == '频道列表' %}class="active"{% endif %}>频道列表</a>
+  {% if user and user.role == 'admin' %}
+  <a href="/sources" {% if title == '采集源管理' %}class="active"{% endif %}>采集源</a>
+  {% endif %}
+  {% if user %}
+  <a href="/users" {% if title == '用户管理' %}class="active"{% endif %}>用户管理</a>
+  {% endif %}
+  {% if user and user.role == 'admin' %}
+  <a href="/api/docs" target="_blank">API 文档</a>
+  {% endif %}
+<a href="#" onclick="toggleTheme();return false" style="font-size:12px;">🌓</a>
+  <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+    {% if user %}
+    <span style="font-size:13px;color:var(--text-muted);">
+      {{ user.username }}
+      <span class="badge badge-{{ 'alive' if user.role == 'admin' else 'other' }}">{{ user.role }}</span>
+    </span>
+    <a href="/api/auth/logout">退出</a>
+    {% else %}
+    <a href="/login">登录</a>
+    {% endif %}
+  </span>
+</nav>
+
+<div class="container">
+{% block content %}{% endblock %}
+</div>
+
+<footer class="footer">
+  LivePool v1.0.0 · <a href="https://www.xyzbeta.com" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:none;">© XyzBeta</a>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,94 @@
+# =============================================================================
+# LivePool 配置文件
+# 大部分配置可通过 Web UI 修改（采集源管理页），无需编辑此文件。
+# 修改后需重启容器或进程生效。
+# =============================================================================
+
+# ---- 认证与安全 ----
+auth:
+  # 首次启动时自动创建管理员账号（当数据库中无用户时）
+  default_admin_password: admin           # 默认管理员密码，首次登录后请立即修改
+  jwt_secret: livepool-secret-change-me-in-production   # JWT 签名密钥，生产环境务必通过 $JWT_SECRET 环境变量覆盖
+  token_expire_hours: 24                  # JWT 登录令牌有效期（小时）
+
+# ---- 频道分类 ----
+classifier:
+  default_group: 其他                     # 无法自动分类的频道归入此分组
+  group_order:                            # 分组在 m3u8 文件和频道列表中的排序
+  - 央视频道
+  - 卫视频道
+  - 地方频道
+  - 海外频道
+  - 体育频道
+  - 电影频道
+  - 纪录频道
+  - 儿童频道
+  - 音乐频道
+  - 其他
+  mapping_file: data/channels.json        # 频道名 → 分组的手动映射文件（JSON 格式）
+
+# ---- 采集器 ----
+collector:
+  crawlers:                               # 远程采集源列表（也可通过 Web UI → 采集源管理页维护）
+  - enabled: true
+    name: github_iptv_org
+    type: github_m3u                       # github_m3u = 从 GitHub 等静态托管拉取 m3u8
+    urls:
+    - https://raw.githubusercontent.com/iptv-org/iptv/master/channels.m3u
+  - enabled: true
+    name: fanmingming_ipv6
+    type: raw_m3u                          # raw_m3u = 通用 HTTP m3u8 链接
+    urls:
+    - https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u
+  - enabled: true
+    name: yuechan_live
+    type: raw_m3u
+    urls:
+    - https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
+  local_seeds:                             # 本地种子文件（放入 sources/ 目录）
+  - sources/test_seed.m3u8
+  timeout: 30                              # 采集远程源的单次 HTTP 超时（秒）
+
+# ---- EPG 节目指南（通过 Web UI → 采集源管理页配置）----
+epg:
+  source: http://epg.51zmt.top:8000/e.xml  # XMLTV 节目数据源 URL，留空禁用
+
+# ---- m3u8 生成 ----
+generator:
+  https_only: false                        # 设为 true 则只输出 HTTPS 链接的频道
+  main_file: live.m3u8                     # 主输出文件名
+  output_dir: output                       # 输出目录
+  per_group: true                          # 是否同时按分组输出独立 m3u8 文件
+  per_group_dir: output/by_group           # 分组文件输出目录
+
+# ---- 日志 ----
+logging:
+  dir: logs                                # 日志文件目录
+  level: INFO                              # 日志级别：DEBUG / INFO / WARNING / ERROR
+  max_files: 7                             # 日志文件保留天数
+
+# ---- 定时调度（通过 Web UI → 采集源管理页配置）----
+scheduler:
+  cron: 0 */6 * * *                        # Cron 表达式，控制自动检测频率
+  timezone: Asia/Shanghai                  # 定时器的时区
+
+# ---- 直播源校验器 ----
+validator:
+  concurrency: 50                          # 并发检测数（越大越快，但可能被源站封）
+  connect_timeout: 2                       # TCP 连接超时（秒）
+  read_timeout: 8                          # 读取响应超时（秒）
+  total_timeout: 10                        # 单条流的全流程超时（秒）
+  retry: 1                                 # 失败重试次数
+  content_min_bytes: 256                   # 响应体最小字节数，小于此值判死
+  deep_check: true                         # 深层检测：下载 m3u8 → 检查媒体分段 → NAL 扫描
+  segment_check: true                      # 媒体分段可达性检测（需 deep_check=true）
+  proxy: null                              # HTTP 代理地址，如 http://127.0.0.1:7890
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+                                           # 检测时使用的 User-Agent
+
+# ---- Web 服务 ----
+web:
+  host: 0.0.0.0                            # 监听地址（0.0.0.0 = 所有网络接口）
+  port: 8008                               # 监听端口
+  cors: true                               # 是否开启 CORS 跨域支持
+  api_docs: true                           # 是否启用 Swagger API 文档（仅管理员可访问）

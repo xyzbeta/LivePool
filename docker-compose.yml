@@ -1,0 +1,37 @@
+services:
+  livepool:
+    build: .
+    container_name: livepool
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./sources:/app/sources
+      - ./output:/app/output
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Optional: dedicated scheduler instance
+  livepool-scheduler:
+    build: .
+    container_name: livepool-scheduler
+    command: ["python3", "src/main.py", "schedule"]
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./sources:/app/sources
+      - ./output:/app/output
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    profiles:
+      - scheduler

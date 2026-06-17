@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="page-title">📊 仪表盘</h1>
+
+<!-- ── 频道概览 ── -->
+<h3 style="margin-bottom:12px;">📡 频道概览</h3>
+<div class="card-grid" style="margin-bottom:24px;">
+  <div class="card">
+    <div class="label">总频道数</div>
+    <div class="value blue">{{ stats.total }}</div>
+  </div>
+  <div class="card">
+    <div class="label">存活</div>
+    <div class="value green">{{ stats.alive }}</div>
+  </div>
+  <div class="card">
+    <div class="label">死链 / 超时 / 错误</div>
+    <div class="value red">{{ stats.dead + stats.timeout + stats.error }}</div>
+  </div>
+  <div class="card">
+    <div class="label">纯音频</div>
+    <div class="value" style="color:var(--warning);">{{ stats.audio }}</div>
+  </div>
+  <div class="card">
+    <div class="label">存活率</div>
+    <div class="value {% if stats.total > 0 and stats.alive / stats.total > 0.7 %}green{% else %}red{% endif %}">
+      {% if stats.total > 0 %}{{ (stats.alive / stats.total * 100) | round(1) }}%{% else %}N/A{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── 检测状态 ── -->
+<h3 style="margin-bottom:12px;">🔍 检测状态</h3>
+<div class="card-grid" style="margin-bottom:24px;">
+  <div class="card">
+    <div class="label">校验耗时</div>
+    <div class="value" style="font-size:18px;">{{ (stats.check_duration_sec or 0) | round(1) }}s</div>
+  </div>
+  <div class="card">
+    <div class="label">最后检测</div>
+    <div class="value" style="font-size:18px;">
+      {% if stats.last_check %}{{ stats.last_check[:16] | replace('T', ' ') }}{% else %}从未检测{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">下次检测</div>
+    <div class="value" style="font-size:18px;" id="next-run-display">---</div>
+  </div>
+  <div class="card" id="trend-card">
+    <div class="label">趋势变化</div>
+    <div class="value" style="font-size:18px;" id="trend-display">---</div>
+  </div>
+</div>
+
+<!-- ── 我的 ── -->
+<h3 style="margin-bottom:12px;">⭐ 我的</h3>
+<div class="card-grid" style="margin-bottom:24px;">
+  <div class="card">
+    <div class="label">⭐ 收藏频道</div>
+    <div class="value" style="color:#f59e0b;">{{ favorite_count }}</div>
+  </div>
+</div>
+
+<!-- Subscription info -->
+{% if user and user.subscription_enabled and user.subscription_token %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:24px;">
+  <h4 style="margin-bottom:8px;">📡 播放器订阅地址</h4>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <code class="sub-url" style="flex:1;padding:8px;background:#f1f5f9;border-radius:4px;font-size:13px;word-break:break-all;">https://{{ request.url.netloc }}/tv/{{ user.subscription_token }}.m3u8</code>
+    <button class="btn btn-sm btn-primary" onclick="copySub(this)">复制</button>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">默认返回全部频道，追加 <code>?cors=1</code> 仅保留兼容 CORS 的源。</p>
+
+  <!-- Favorites subscription -->
+  <div style="margin-top:8px;">
+    <span style="font-size:13px;font-weight:600;">⭐ 收藏频道</span>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+      <code class="sub-url" style="flex:1;padding:6px;background:#f1f5f9;border-radius:4px;font-size:12px;word-break:break-all;">https://{{ request.url.netloc }}/tv/{{ user.subscription_token }}/favorites.m3u8</code>
+      <button class="btn btn-sm btn-primary" onclick="copySub(this)">复制</button>
+    </div>
+  </div>
+
+  <!-- EPG URL (shown when EPG is configured) -->
+  <div id="epg-url-row" style="margin-top:8px;display:none;">
+    <span style="font-size:13px;font-weight:600;">📺 EPG 节目指南</span>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+      <code class="sub-url" style="flex:1;padding:6px;background:#f1f5f9;border-radius:4px;font-size:12px;word-break:break-all;">https://{{ request.url.netloc }}/tv/{{ user.subscription_token }}/epg.xml</code>
+      <button class="btn btn-sm btn-primary" onclick="copySub(this)">复制</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">部分播放器不支持自动识别 <code>url-tvg</code>，可手动填入上方地址加载节目信息。</p>
+  </div>
+
+  <!-- Group subscription links -->
+  <details style="margin-top:8px;">
+    <summary style="cursor:pointer;font-size:13px;font-weight:600;">📁 按分组订阅</summary>
+    <div id="group-subs" style="margin-top:8px;font-size:12px;color:var(--text-muted);">加载中...</div>
+  </details>
+</div>
+{% endif %}
+
+<!-- Quick actions -->
+<div style="margin-top:24px; display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
+  <a href="/api/m3u8" class="btn btn-success">⬇ 下载 M3U8</a>
+  <a href="/channels" class="btn btn-outline">📋 查看频道列表</a>
+</div>
+
+<!-- Progress display -->
+<div id="check-progress" style="margin-top:16px;display:none;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h5 style="margin:0;">⏳ 检测进行中</h5>
+      <span id="progress-detail" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+    <div id="progress-steps" class="pipeline-steps"></div>
+    <div id="progress-result" style="font-weight:600;"></div>
+  </div>
+</div>
+
+<script>
+// Pipeline step definitions (shared with sources.html)
+const CHK_STEPS = [
+  {key:'collect',  icon:'📡', label:'采集'},
+  {key:'validate', icon:'🔍', label:'校验'},
+  {key:'filter',   icon:'🧹', label:'去重'},
+  {key:'classify', icon:'🏷️', label:'分类'},
+  {key:'cache_logos', icon:'🖼️', label:'图标'},
+  {key:'generate', icon:'📝', label:'生成'},
+  {key:'epg', icon:'📺', label:'EPG'},
+];
+const CHK_STATUS = {done:'已完成', active:'进行中', pending:'等待中'};
+
+function renderPipelineSteps(stepsDone, currentStep) {
+  var container = document.getElementById('progress-steps');
+  if (!container) return;
+  container.innerHTML = CHK_STEPS.map(function(s, i) {
+    var cls = 'pending';
+    if (stepsDone && stepsDone.indexOf(s.key) !== -1) cls = 'done';
+    else if (s.key === currentStep) cls = 'active';
+    if (currentStep && !stepsDone) {
+      var idx = CHK_STEPS.findIndex(function(x) { return x.key === currentStep; });
+      if (i < idx) cls = 'done';
+    }
+    var arrow = i < CHK_STEPS.length - 1 ? '<span class="pipeline-arrow">›</span>' : '';
+    return arrow + '<div class="pipeline-step ' + cls + '">' +
+      '<div class="step-card">' +
+        '<span class="step-icon">' + s.icon + '</span>' +
+        '<span class="step-label">' + s.label + '</span>' +
+        '<span class="step-status">' + CHK_STATUS[cls] + '</span>' +
+      '</div></div>';
+  }).join('');
+}
+
+// ---- Schedule ----
+async function loadSchedule() {
+  try {
+    const resp = await fetch('/api/schedule');
+    const s = await resp.json();
+    document.getElementById('schedule-display').innerHTML = `
+      Cron: <code>${s.cron}</code> &nbsp;·&nbsp; 时区: ${s.timezone}<br>
+      <span style="font-size:12px;">使用 <code>python3 src/main.py schedule</code> 启动定时调度</span>
+    `;
+  } catch(e) {
+    document.getElementById('schedule-display').textContent = '仅管理员可查看';
+  }
+}
+
+// ---- Check progress ----
+
+// ---- Dynamic cards ----
+(async function() {
+  // Trend
+  try {
+    const resp = await fetch('/api/stats');
+    const s = await resp.json();
+    const t = s.trend || {};
+    const el = document.getElementById('trend-display');
+    if (t.prev_alive !== undefined) {
+      const delta = s.alive - t.prev_alive;
+      const color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
+      const sign = delta >= 0 ? '+' : '';
+      el.innerHTML = '<span style="color:'+color+';font-weight:700;">'+sign+delta+'</span> 个频道';
+    } else {
+      el.textContent = '首次检测';
+    }
+  } catch(e) {}
+
+  // Next run
+  try {
+    const resp = await fetch('/api/scheduler/status');
+    const st = await resp.json();
+    const el = document.getElementById('next-run-display');
+    if (st.next_run) {
+      el.textContent = st.next_run.slice(11,16);
+    } else {
+      el.textContent = st.running ? '待定' : '已暂停';
+    }
+  } catch(e) {}
+
+  // Show EPG URL if EPG is configured
+  try {
+    const epgResp = await fetch('/api/epg/config');
+    if (epgResp.ok) {
+      const epgData = await epgResp.json();
+      if (epgData.source) {
+        const epgRow = document.getElementById('epg-url-row');
+        if (epgRow) epgRow.style.display = 'block';
+      }
+    }
+  } catch(e) {}
+})();
+
+// ---- Copy ----
+function copySub(btn) {
+  const el = btn.parentElement.querySelector('code');
+  const text = el.textContent.trim();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => flash(el)).catch(() => fallbackCopy(text, el));
+  } else { fallbackCopy(text, el); }
+}
+function fallbackCopy(text, el) {
+  const ta = document.createElement('textarea'); ta.value = text;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta); flash(el);
+}
+function flash(el) { el.style.background = '#c6f6d5'; setTimeout(() => el.style.background = '#f1f5f9', 1500); }
+
+// ---- Group subscription links ----
+document.querySelector('details').addEventListener('toggle', async function() {
+  if (!this.open) return;
+  const el = document.getElementById('group-subs');
+  if (el.dataset.loaded) return;
+  try {
+    const resp = await fetch('/api/groups');
+    const data = await resp.json();
+    const base = `https://{{ request.url.netloc }}/tv/{{ user.subscription_token }}`;
+    el.innerHTML = data.groups.map(g =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+        <span style="width:80px;">${g.name}</span>
+        <code style="flex:1;font-size:11px;background:#f1f5f9;padding:2px 6px;border-radius:3px;">${base}/${encodeURIComponent(g.name)}.m3u8</code>
+        <span>(${g.count})</span>
+      </div>`
+    ).join('');
+    el.dataset.loaded = '1';
+  } catch(e) {}
+});
+
+loadSchedule();
+
+// Auto-reconnect to running task on page load
+(async function() {
+  try {
+    const resp = await fetch('/api/tasks');
+    const t = await resp.json();
+    if (t.status === 'running') {
+      document.getElementById('check-progress').style.display = 'block';
+      document.getElementById('progress-detail').textContent = t.progress || '...';
+      renderPipelineSteps(t.steps_done || [], t.step);
+      // Re-poll until done
+      let taskId = t.id;
+      let done = false;
+      while (!done) {
+        await new Promise(r => setTimeout(r, 800));
+        const tResp = await fetch(`/api/tasks/${taskId}`);
+        const tData = await tResp.json();
+        renderPipelineSteps(tData.steps_done || [], tData.step);
+        document.getElementById('progress-detail').textContent = tData.progress || '...';
+        if (tData.status !== 'running') {
+          const resultEl = document.getElementById('progress-result');
+          resultEl.innerHTML = tData.status === 'completed'
+            ? `<span style="color:var(--success);">✅ ${tData.progress}</span>`
+            : `<span style="color:var(--danger);">❌ ${tData.progress}</span>`;
+          setTimeout(() => location.reload(), 2000);
+          done = true;
+        }
+      }
+    }
+  } catch(e) {}
+})();
+</script>
+
+{% endblock %}

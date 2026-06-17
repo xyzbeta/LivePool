@@ -1,0 +1,644 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="page-title">👥 用户管理</h1>
+
+<div style="display:flex;gap:12px;margin-bottom:16px;">
+  {% if user.role == 'admin' %}
+
+  <button class="btn btn-primary" onclick="showCreateForm()">+ 新建用户</button>
+  {% endif %}
+  <button class="btn btn-outline" onclick="showPasswordForm()">🔑 修改密码</button>
+</div>
+
+<!-- User list -->
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>用户名</th>
+        <th>角色</th>
+        <th>状态</th>
+        <th>2FA</th>
+        <th>订阅</th>
+        <th>拉取</th>
+        <th>订阅地址</th>
+        <th>创建时间</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="users-tbody">
+      <tr><td colspan="9" style="text-align:center;padding:40px;">加载中...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Create/Edit Modal (admin only) -->
+{% if user.role == 'admin' %}
+
+<div id="modal-overlay" class="modal-overlay" style="display:none;" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 id="modal-title">新建用户</h3>
+    <form id="user-form" onsubmit="saveUser(event)">
+      <input type="hidden" id="edit-id">
+
+      <div class="form-group">
+        <label for="edit-username">用户名</label>
+        <input type="text" id="edit-username" required>
+      </div>
+
+      <div class="form-group">
+        <label for="edit-password">密码</label>
+        <input type="password" id="edit-password" placeholder="留空不修改">
+      </div>
+
+      <div class="form-group">
+        <label for="edit-role">角色</label>
+        <select id="edit-role">
+          <option value="user">普通用户</option>
+          <option value="admin">管理员</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>权限</label>
+        <div class="toggle-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="edit-active" checked>
+            <span class="toggle-text">启用账号</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="edit-sub">
+            <span class="toggle-text">启用订阅</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="edit-force-2fa">
+            <span class="toggle-text">强制 2FA</span>
+          </label>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">强制 2FA 开启后，用户首次登录时必须在登录页面完成验证器绑定。</p>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- 2FA Setup Modal -->
+<div id="tfa-setup-overlay" class="modal-overlay" style="display:none;" onclick="closeTfaModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:480px;">
+    <h3 id="tfa-setup-title">📱 绑定验证器</h3>
+
+    <!-- Step A: QR code -->
+    <div id="tfa-step-qr">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+        使用验证器 App 扫描下方二维码，或手动输入密钥。
+      </p>
+      <div id="tfa-qr-container" style="text-align:center;margin-bottom:12px;">
+        <div style="padding:16px;background:#fff;display:inline-block;border-radius:8px;">加载中...</div>
+      </div>
+      <div style="font-size:12px;margin-bottom:16px;">
+        <span style="color:var(--text-muted);">密钥：</span>
+        <code id="tfa-secret-display" style="word-break:break-all;"></code>
+        <button class="btn btn-sm btn-outline" onclick="copyTfaSecret()" style="margin-left:4px;">复制</button>
+      </div>
+      <p style="font-size:13px;font-weight:600;">输入验证器 App 中的 6 位动态码完成绑定：</p>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input type="text" id="tfa-verify-code" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="6" style="flex:1;text-align:center;font-size:18px;letter-spacing:4px;">
+        <button class="btn btn-primary" onclick="verifyTfaSetup()">验证并启用</button>
+      </div>
+      <div id="tfa-setup-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none;"></div>
+    </div>
+
+    <!-- Step B: backup codes -->
+    <div id="tfa-step-backup" style="display:none;">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+        ⚠️ 二次验证已启用！请立即保存以下恢复码。每个恢复码只能使用一次。
+      </p>
+      <div style="background:#f8f9fa;border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:12px;">
+        <pre id="tfa-backup-codes" style="font-size:14px;font-family:monospace;text-align:center;line-height:2;"></pre>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="btn btn-sm btn-primary" onclick="copyTfaBackupCodes()">复制恢复码</button>
+        <button class="btn btn-sm btn-outline" onclick="downloadTfaBackupCodes()">下载</button>
+        <button class="btn btn-sm btn-outline" onclick="closeTfaModalAndReload()">我已保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2FA Disable Modal -->
+<div id="tfa-disable-overlay" class="modal-overlay" style="display:none;" onclick="closeDisableModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:400px;">
+    <h3>关闭二次验证</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">请输入当前密码确认关闭二次验证。</p>
+    <input type="hidden" id="tfa-disable-id">
+    <div style="display:flex;gap:8px;">
+      <input type="password" id="tfa-disable-password" placeholder="当前密码" style="flex:1;">
+      <button class="btn btn-danger" onclick="disable2fa()">确认关闭</button>
+    </div>
+    <div id="tfa-disable-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none;"></div>
+  </div>
+</div>
+
+<!-- Password Change Modal -->
+<div id="pw-change-overlay" class="modal-overlay" style="display:none;" onclick="closePasswordModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:400px;">
+    <h3>🔑 修改密码</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">修改当前登录账号的登录密码。</p>
+    <div class="form-group">
+      <label for="pw-current">当前密码</label>
+      <input type="password" id="pw-current" placeholder="输入当前密码" required>
+    </div>
+    <div class="form-group">
+      <label for="pw-new">新密码</label>
+      <input type="password" id="pw-new" placeholder="输入新密码" required>
+    </div>
+    <div class="form-group">
+      <label for="pw-confirm">确认新密码</label>
+      <input type="password" id="pw-confirm" placeholder="再次输入新密码" required>
+    </div>
+    <div id="pw-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none;"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" onclick="closePasswordModal()">取消</button>
+      <button type="button" class="btn btn-primary" onclick="changePassword()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ======== Invite Code Management (admin only) ======== -->
+{% if user.role == 'admin' %}
+<div style="margin-top:32px; border-top:1px solid var(--border); padding-top:24px;">
+  <h3 style="margin-bottom:16px;">🔑 邀请码管理</h3>
+
+  <!-- Generate -->
+  <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
+    <div>
+      <label style="font-size:12px;display:block;margin-bottom:4px;">生成数量</label>
+      <input type="number" id="inv-count" value="1" min="1" max="100" style="width:80px;">
+    </div>
+    <button class="btn btn-primary" onclick="generateInviteCodes()">生成邀请码</button>
+  </div>
+
+  <!-- Invite codes table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>邀请码</th>
+          <th>创建者</th>
+          <th>使用状态</th>
+          <th>启用</th>
+          <th>使用者</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="invite-tbody">
+        <tr><td colspan="7" style="text-align:center;padding:30px;">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+const CURRENT_USER_ID = '{{ user.id }}';
+const IS_ADMIN = {{ 'true' if user.role == 'admin' else 'false' }};
+let allUsers = [];
+let tfaSecret = '';
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function loadUsers() {
+  const resp = await fetch('/api/users');
+  const data = await resp.json();
+  allUsers = data.users;
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('users-tbody');
+
+  // Filter: regular users only see themselves
+  let rows = allUsers;
+  if (!IS_ADMIN) {
+    rows = rows.filter(u => u.id === CURRENT_USER_ID);
+  }
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;">暂无用户</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(u => {
+    const isSelf = u.id === CURRENT_USER_ID;
+    const subUrl = u.subscription_enabled && u.subscription_token
+      ? u.subscription_token.slice(0,8) + '…'
+      : '';
+
+    // 2FA action buttons
+    let tfaBtn = '';
+    if (isSelf) {
+      if (u.totp_enabled) {
+        tfaBtn = `<button class="btn btn-sm btn-outline" onclick="showTfaDisable('${u.id}')" style="color:var(--danger);">关2FA</button>`;
+      } else {
+        tfaBtn = `<button class="btn btn-sm btn-outline" onclick="showTfaSetup()" style="color:var(--primary);">2FA</button>`;
+      }
+    } else if (IS_ADMIN && u.totp_enabled) {
+      tfaBtn = `<button class="btn btn-sm btn-outline" onclick="resetUser2fa('${u.id}', '${u.username}')" style="color:var(--warning);">重置</button>`;
+    }
+
+    // Admin-only action buttons
+    let adminActions = '';
+    if (IS_ADMIN) {
+      adminActions = `
+        <button class="btn btn-sm btn-outline" onclick="editUser('${u.id}')">编辑</button>
+        <button class="btn btn-sm btn-outline" onclick="genToken('${u.id}')" style="color:var(--success)" title="更新订阅地址">Token</button>
+        ${!isSelf ? `<button class="btn btn-sm btn-outline" onclick="deleteUser('${u.id}')" style="color:var(--danger)">删</button>` : ''}
+      `;
+    }
+
+    return `
+    <tr>
+      <td style="font-weight:600;">${isSelf ? '👤 ' : ''}${esc(u.username)}</td>
+      <td><span class="badge badge-${u.role==='admin'?'alive':'other'}">${u.role}</span></td>
+      <td style="white-space:nowrap;">${u.is_active ? '<span class="badge badge-alive">启用</span>' : '<span class="badge badge-dead">禁用</span>'}</td>
+      <td style="white-space:nowrap;">${u.totp_enabled ? '<span class="badge badge-alive">2FA</span>' : ''}</td>
+      <td style="white-space:nowrap;">${u.subscription_enabled ? '<span class="badge badge-alive">订阅</span>' : ''}</td>
+      <td style="font-size:11px;white-space:nowrap;" title="${u.last_pull_at ? u.last_pull_at.slice(0,16).replace('T',' ') : ''}">${u.pull_count||0} 次</td>
+      <td style="font-size:11px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;" title="${u.subscription_enabled && u.subscription_token ? '/tv/'+u.subscription_token+'.m3u8' : ''}">${subUrl}</td>
+      <td style="font-size:12px;">${(u.created_at||'').slice(0,10)}</td>
+      <td style="white-space:nowrap;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          ${tfaBtn}
+          ${adminActions}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ---- Admin: create/edit/delete users ----
+{% if user.role == 'admin' %}
+
+function showCreateForm() {
+  document.getElementById('modal-title').textContent = '新建用户';
+  document.getElementById('edit-id').value = '';
+  document.getElementById('edit-username').value = '';
+  document.getElementById('edit-password').value = '';
+  document.getElementById('edit-password').required = true;
+  document.getElementById('edit-password').placeholder = '';
+  document.getElementById('edit-role').value = 'user';
+  document.getElementById('edit-active').checked = true;
+  document.getElementById('edit-sub').checked = false;
+  document.getElementById('edit-force-2fa').checked = false;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function editUser(id) {
+  const u = allUsers.find(x => x.id === id);
+  if (!u) return;
+  document.getElementById('modal-title').textContent = '编辑用户';
+  document.getElementById('edit-id').value = u.id;
+  document.getElementById('edit-username').value = u.username;
+  document.getElementById('edit-password').value = '';
+  document.getElementById('edit-password').required = false;
+  document.getElementById('edit-password').placeholder = '留空不修改';
+  document.getElementById('edit-role').value = u.role;
+  document.getElementById('edit-active').checked = u.is_active;
+  document.getElementById('edit-sub').checked = u.subscription_enabled;
+  document.getElementById('edit-force-2fa').checked = u.force_2fa || false;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').style.display = 'none';
+}
+
+async function saveUser(e) {
+  e.preventDefault();
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    username: document.getElementById('edit-username').value,
+    role: document.getElementById('edit-role').value,
+    is_active: document.getElementById('edit-active').checked,
+    subscription_enabled: document.getElementById('edit-sub').checked,
+    force_2fa: document.getElementById('edit-force-2fa').checked,
+  };
+  const pw = document.getElementById('edit-password').value;
+  if (pw) body.password = pw;
+
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `/api/users/${id}` : '/api/users';
+  const resp = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (resp.ok) {
+    closeModal();
+    loadUsers();
+  } else {
+    const err = await resp.json();
+    alert(err.detail || '保存失败');
+  }
+}
+
+async function genToken(id) {
+  if (!confirm('确认生成/重置此用户的订阅Token？旧Token将失效。')) return;
+  const resp = await fetch(`/api/users/${id}/subscription-token`, { method: 'POST' });
+  if (resp.ok) {
+    const data = await resp.json();
+    alert('新订阅Token: ' + data.subscription_token);
+    loadUsers();
+  } else { const err = await resp.json(); alert(err.detail); }
+}
+
+async function deleteUser(id) {
+  if (!confirm('确认删除此用户？')) return;
+  const resp = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+  if (resp.ok) loadUsers();
+  else { const err = await resp.json(); alert(err.detail); }
+}
+{% endif %} {# end admin-only functions #}
+
+// ---- 2FA Setup (self-service) ----
+function showTfaSetup() {
+  document.getElementById('tfa-setup-overlay').style.display = 'flex';
+  document.getElementById('tfa-step-qr').style.display = 'block';
+  document.getElementById('tfa-step-backup').style.display = 'none';
+  document.getElementById('tfa-setup-error').style.display = 'none';
+  document.getElementById('tfa-verify-code').value = '';
+  document.getElementById('tfa-qr-container').innerHTML = '<div style="padding:16px;">加载中...</div>';
+
+  fetch('/api/auth/2fa/setup', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      tfaSecret = data.secret;
+      document.getElementById('tfa-qr-container').innerHTML = data.qr_svg;
+      document.getElementById('tfa-secret-display').textContent = data.secret;
+    })
+    .catch(() => {
+      document.getElementById('tfa-qr-container').innerHTML = '<span style="color:var(--danger);">加载失败</span>';
+    });
+}
+
+function closeTfaModal(e) {
+  if (e && e.target !== document.getElementById('tfa-setup-overlay')) return;
+  document.getElementById('tfa-setup-overlay').style.display = 'none';
+}
+
+function closeTfaModalAndReload() {
+  document.getElementById('tfa-setup-overlay').style.display = 'none';
+  loadUsers();
+}
+
+function copyTfaSecret() {
+  const text = document.getElementById('tfa-secret-display').textContent;
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+async function verifyTfaSetup() {
+  const code = document.getElementById('tfa-verify-code').value.trim();
+  if (!code || code.length < 6) {
+    document.getElementById('tfa-setup-error').textContent = '请输入 6 位验证码';
+    document.getElementById('tfa-setup-error').style.display = 'block';
+    return;
+  }
+  document.getElementById('tfa-setup-error').style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/auth/2fa/verify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({secret: tfaSecret, code: code}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      document.getElementById('tfa-setup-error').textContent = data.detail || '验证失败';
+      document.getElementById('tfa-setup-error').style.display = 'block';
+      return;
+    }
+    document.getElementById('tfa-step-qr').style.display = 'none';
+    document.getElementById('tfa-step-backup').style.display = 'block';
+    document.getElementById('tfa-backup-codes').textContent = data.backup_codes.join('\n');
+  } catch(e) {
+    document.getElementById('tfa-setup-error').textContent = '网络错误';
+    document.getElementById('tfa-setup-error').style.display = 'block';
+  }
+}
+
+function copyTfaBackupCodes() {
+  const text = document.getElementById('tfa-backup-codes').textContent;
+  navigator.clipboard.writeText(text).catch(() => {});
+  alert('恢复码已复制到剪贴板');
+}
+
+function downloadTfaBackupCodes() {
+  const text = document.getElementById('tfa-backup-codes').textContent;
+  const blob = new Blob(['LivePool 二次验证恢复码\n\n' + text + '\n\n每个恢复码只能使用一次，请妥善保管。\n'], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'livepool-backup-codes.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---- 2FA Disable (self-service) ----
+function showTfaDisable(userId) {
+  document.getElementById('tfa-disable-overlay').style.display = 'flex';
+  document.getElementById('tfa-disable-id').value = userId;
+  document.getElementById('tfa-disable-password').value = '';
+  document.getElementById('tfa-disable-error').style.display = 'none';
+}
+
+function closeDisableModal(e) {
+  if (e && e.target !== document.getElementById('tfa-disable-overlay')) return;
+  document.getElementById('tfa-disable-overlay').style.display = 'none';
+}
+
+async function disable2fa() {
+  const password = document.getElementById('tfa-disable-password').value;
+  if (!password) {
+    document.getElementById('tfa-disable-error').textContent = '请输入当前密码';
+    document.getElementById('tfa-disable-error').style.display = 'block';
+    return;
+  }
+  document.getElementById('tfa-disable-error').style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/auth/2fa/disable', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: password}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      document.getElementById('tfa-disable-error').textContent = data.detail || '关闭失败';
+      document.getElementById('tfa-disable-error').style.display = 'block';
+      return;
+    }
+    document.getElementById('tfa-disable-overlay').style.display = 'none';
+    loadUsers();
+  } catch(e) {
+    document.getElementById('tfa-disable-error').textContent = '网络错误';
+    document.getElementById('tfa-disable-error').style.display = 'block';
+  }
+}
+
+// ---- Admin: reset another user's 2FA ----
+async function resetUser2fa(id, username) {
+  if (!confirm(`确认重置用户 "${username}" 的二次验证？操作后该用户的 2FA 将被清除，需重新绑定。`)) return;
+  const resp = await fetch(`/api/users/${id}/reset-2fa`, { method: 'POST' });
+  if (resp.ok) {
+    alert('2FA 已重置');
+    loadUsers();
+  } else {
+    const err = await resp.json();
+    alert(err.detail || '重置失败');
+  }
+}
+
+// ---- Password change ----
+function showPasswordForm() {
+  document.getElementById('pw-change-overlay').style.display = 'flex';
+  document.getElementById('pw-current').value = '';
+  document.getElementById('pw-new').value = '';
+  document.getElementById('pw-confirm').value = '';
+  document.getElementById('pw-error').style.display = 'none';
+}
+
+function closePasswordModal(e) {
+  if (e && e.target !== document.getElementById('pw-change-overlay')) return;
+  document.getElementById('pw-change-overlay').style.display = 'none';
+}
+
+async function changePassword() {
+  const current = document.getElementById('pw-current').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  const errorEl = document.getElementById('pw-error');
+
+  if (!current || !newPw) {
+    errorEl.textContent = '请填写当前密码和新密码';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (newPw.length < 4) {
+    errorEl.textContent = '新密码长度不能少于 4 位';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (newPw !== confirm) {
+    errorEl.textContent = '两次输入的新密码不一致';
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/auth/me', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current_password: current, password: newPw}),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      alert('密码修改成功');
+      document.getElementById('pw-change-overlay').style.display = 'none';
+    } else {
+      errorEl.textContent = data.detail || '修改失败';
+      errorEl.style.display = 'block';
+    }
+  } catch(e) {
+    errorEl.textContent = '网络错误';
+    errorEl.style.display = 'block';
+  }
+}
+
+
+// ---- Invite Code Management (admin) ----
+async function loadInviteCodes() {
+  try {
+    const resp = await fetch('/api/invite-codes');
+    const data = await resp.json();
+    const tbody = document.getElementById('invite-tbody');
+    if (!tbody) return;
+    if (!data.codes || data.codes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">暂无邀请码</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.codes.map(c => {
+            return '<tr>' +
+        '<td><code style="font-size:12px;">' + c.code + '</code></td>' +
+        '<td>' + (c.created_by || '-') + '</td>' +
+        '<td>' + (c.used_count > 0 ? '<span class="badge badge-other">已使用</span>' : '<span class="badge badge-alive">未使用</span>') + '</td>' +
+        '<td>' + (c.is_active ? '<span class="badge badge-alive">● 启用</span>' : '<span class="badge badge-dead">○ 禁用</span>') + '</td>' +
+        '<td>' + (c.used_by && c.used_by.length > 0 ? esc(c.used_by.join(', ')) : '-') + '</td>' +
+        '<td style="font-size:12px;">' + (c.created_at||'').slice(0,10) + '</td>' +
+        '<td>' +
+          '<button class="btn btn-sm btn-outline" onclick="toggleInviteCode(\'' + c.id + '\', ' + (!c.is_active) + ')">' + (c.is_active ? '禁用' : '启用') + '</button> ' +
+          '<button class="btn btn-sm btn-outline" onclick="deleteInviteCode(\'' + c.id + '\', \'' + c.code + '\')" style="color:var(--danger);">删除</button>' +
+        '</td></tr>';
+    }).join('');
+  } catch(e) {
+    const tbody = document.getElementById('invite-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+  }
+}
+
+async function generateInviteCodes() {
+  const count = parseInt(document.getElementById('inv-count').value) || 1;
+  try {
+    const resp = await fetch('/api/invite-codes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({count}),
+    });
+    if (!resp.ok) { const err = await resp.json(); alert(err.detail || '生成失败'); return; }
+    const data = await resp.json();
+    const codes = data.codes.map(c => c.code).join('\n');
+    alert('生成 ' + data.codes.length + ' 个邀请码：\n\n' + codes);
+    loadInviteCodes();
+  } catch(e) {
+    alert('网络错误');
+  }
+}
+
+async function toggleInviteCode(id, newState) {
+  try {
+    const resp = await fetch('/api/invite-codes/' + id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({is_active: newState}),
+    });
+    if (resp.ok) loadInviteCodes();
+    else { const err = await resp.json(); alert(err.detail || '操作失败'); }
+  } catch(e) { alert('网络错误'); }
+}
+
+async function deleteInviteCode(id, code) {
+  if (!confirm('确认删除邀请码 ' + code + '？')) return;
+  try {
+    const resp = await fetch('/api/invite-codes/' + id, { method: 'DELETE' });
+    if (resp.ok) loadInviteCodes();
+    else { const err = await resp.json(); alert(err.detail || '删除失败'); }
+  } catch(e) { alert('网络错误'); }
+}
+
+
+// Load invite codes if admin
+{% if user.role == 'admin' %}
+if (document.getElementById('invite-tbody')) loadInviteCodes();
+{% endif %}
+loadUsers();
+</script>
+
+{% endblock %}
