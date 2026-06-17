@@ -1,6 +1,6 @@
 services:
   livepool:
-    build: .
+    image: livepool:latest
     container_name: livepool
     ports:
       - "8008:8008"
@@ -19,7 +19,7 @@ services:
 
   # Optional: dedicated scheduler instance
   livepool-scheduler:
-    build: .
+    image: livepool:latest
     container_name: livepool-scheduler
     command: ["python3", "src/main.py", "schedule"]
     volumes:
