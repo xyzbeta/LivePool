@@ -46,6 +46,33 @@
   </table>
 </div>
 
+<!-- Local seeds table (admin only) -->
+{% if user and user.role == 'admin' %}
+<div style="margin-top:24px;">
+  <h4 style="margin-bottom:12px;">📂 本地种子文件</h4>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>文件名</th>
+          <th>类型</th>
+          <th>大小</th>
+          <th>频道数</th>
+          <th>存活</th>
+          <th>修改时间</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="local-seeds-tbody">
+        <tr><td colspan="8" style="text-align:center;padding:30px;">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">将 .m3u8 / .m3u / .txt 文件放入 <code>data/sources/</code> 目录，系统在下次全量检测时自动导入。</p>
+</div>
+{% endif %}
+
 <!-- EPG Config (admin only) -->
 {% if user and user.role == 'admin' %}
 <div style="margin-top:24px; background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
@@ -108,12 +135,6 @@
 
 </div>
 {% endif %}
-
-<!-- Local seeds info -->
-<div style="margin-top:32px; padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);">
-  <h4 style="margin-bottom:8px;">📂 本地种子文件</h4>
-  <p style="color:var(--text-muted);margin-bottom:8px;">将 .m3u8 或 .txt 文件放入 <code>sources/</code> 目录，系统会自动导入。在线采集源通过上方表格管理。</p>
-</div>
 
 <!-- Add/Edit Modal -->
 {% if user and user.role == 'admin' %}
@@ -448,6 +469,55 @@ setInterval(async function() {
   } catch(e) {}
 }, 10000);
 
+
+// ---- Local Seeds ----
+async function loadLocalSeeds() {
+  try {
+    const resp = await fetch('/api/local-seeds');
+    const data = await resp.json();
+    const tbody = document.getElementById('local-seeds-tbody');
+    if (!tbody) return;
+    if (!data.seeds || data.seeds.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted);">暂无本地种子文件</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.seeds.map(s => {
+      const sizeStr = s.size > 1024 ? (s.size/1024).toFixed(0) + 'KB' : s.size + 'B';
+      return '<tr>' +
+        '<td style="font-weight:600;font-size:13px;">' + s.name + '</td>' +
+        '<td><code style="font-size:11px;">' + s.type + '</code></td>' +
+        '<td style="font-size:12px;">' + sizeStr + '</td>' +
+        '<td>' + (s.channels_total||0) + '</td>' +
+        '<td>' + (s.channels_alive > 0 ? '<span class="badge badge-alive">' + s.channels_alive + '</span>' : '0') + '</td>' +
+        '<td style="font-size:12px;">' + (s.last_fetch_at||'').slice(0,16).replace('T',' ') + '</td>' +
+        '<td>' + (s.enabled ? '<span class="badge badge-alive">● 启用</span>' : '<span class="badge badge-other">○ 禁用</span>') + '</td>' +
+        '<td>' +
+          '<button class="btn btn-sm btn-outline" onclick="toggleLocalSeed(\'' + s.name + '\', ' + (!s.enabled) + ')">' + (s.enabled ? '禁用' : '启用') + '</button>' +
+        '</td></tr>';
+    }).join('');
+  } catch(e) {
+    const tbody = document.getElementById('local-seeds-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+  }
+}
+
+async function toggleLocalSeed(filename, newState) {
+  try {
+    const resp = await fetch('/api/local-seeds/' + encodeURIComponent(filename), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: newState}),
+    });
+    if (resp.ok) {
+      loadLocalSeeds();
+      showFlashMsg(newState ? '已启用: ' + filename : '已禁用: ' + filename);
+    } else {
+      const err = await resp.json();
+      alert(err.detail || '操作失败');
+    }
+  } catch(e) { alert('网络错误'); }
+}
+
 // ---- EPG Config ----
 async function loadEpgConfig() {
   try {
@@ -488,6 +558,7 @@ async function saveEpgConfig() {
   }
 }
 
+loadLocalSeeds();
 loadSchedule();
 loadEpgConfig();
 {% endif %}

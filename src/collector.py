@@ -103,6 +103,20 @@ def _import_local_seeds() -> List[StreamEntry]:
                 + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.txt")]
             )
 
+    # Filter disabled seeds (from Web UI toggle)
+    import json as _json
+    _state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
+    _seed_state = {}
+    if _state_file.exists():
+        try:
+            _seed_state = _json.loads(_state_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    local_seeds = [
+        s for s in local_seeds
+        if _seed_state.get(Path(s).name, {}).get("enabled", True)
+    ]
+
     for seed_path_str in local_seeds:
         seed_path = PROJECT_ROOT / seed_path_str
         if not seed_path.exists():

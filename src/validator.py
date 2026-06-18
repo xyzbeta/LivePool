@@ -23,7 +23,7 @@ LAST_CHECK_FILE = PROJECT_ROOT / "data" / "last_check.json"
 BODY_SAMPLE_SIZE = 2048
 
 # Dead‑URL backoff: skip a URL for this many hours once fail_count reaches threshold
-_SKIP_THRESHOLD = 3       # start skipping after this many consecutive failures
+_SKIP_THRESHOLD = 999999  # disabled: always check all URLs for consistent stats
 _MAX_BACKOFF_HOURS = 168  # cap at 7 days
 
 

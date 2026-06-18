@@ -1418,6 +1418,96 @@ async def api_sources(admin: dict = Depends(require_admin)):
     return {"sources": _get_sources_with_stats()}
 
 
+@app.get("/api/local-seeds")
+async def api_local_seeds(admin: dict = Depends(require_admin)):
+    """List local seed files with channel stats."""
+    import json
+    import os as _os
+    from datetime import datetime as _dt
+
+    seeds_dir = PROJECT_ROOT / "data" / "sources"
+    if not seeds_dir.exists():
+        return {"seeds": []}
+
+    # Read enable/disable state
+    state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
+    state = {}
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Load channels to count per-source
+    channels = _get_channels()
+    url_counts: Dict[str, int] = {}
+    url_alive: Dict[str, int] = {}
+    for ch in channels:
+        src = ch.source or ""
+        url_counts[src] = url_counts.get(src, 0) + 1
+        if ch.status == StreamStatus.ALIVE:
+            url_alive[src] = url_alive.get(src, 0) + 1
+
+    seeds = []
+    for f in sorted(seeds_dir.iterdir()):
+        if not f.is_file() or f.suffix.lower() not in (".m3u", ".m3u8", ".txt"):
+            continue
+        fname = f.name
+        file_stat = state.get(fname, {})
+        enabled = file_stat.get("enabled", True)
+        mtime = _dt.fromtimestamp(f.stat().st_mtime).isoformat() if f.stat().st_mtime else ""
+
+        # Count channels that came from this file
+        file_path_str = str(f)
+        total = url_counts.get(file_path_str, 0)
+        alive = url_alive.get(file_path_str, 0)
+
+        seeds.append({
+            "name": fname,
+            "type": "local_file",
+            "size": f.stat().st_size,
+            "enabled": enabled,
+            "last_fetch_at": mtime,
+            "channels_total": total,
+            "channels_alive": alive,
+        })
+
+    return {"seeds": seeds}
+
+
+@app.put("/api/local-seeds/{filename}")
+async def api_toggle_local_seed(filename: str, request: Request, admin: dict = Depends(require_admin)):
+    """Enable or disable a local seed file."""
+    import json
+    from urllib.parse import unquote
+
+    filename = unquote(filename)
+    seeds_dir = PROJECT_ROOT / "data" / "sources"
+    file_path = seeds_dir / filename
+
+    # Security: prevent path traversal
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    body = await request.json()
+    enabled = body.get("enabled", True)
+
+    state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
+    state = {}
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    state[filename] = {"enabled": enabled}
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True}
+
+
 @app.get("/api/sources/{source_id}")
 async def api_source_detail(source_id: str, admin: dict = Depends(require_admin)):
     store = get_sources_store()
