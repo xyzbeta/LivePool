@@ -85,10 +85,4 @@ def get_logging_config() -> Dict[str, Any]:
     return load_config().get("logging", {})
 
 
-def resolve_path(key: str, default: str) -> Path:
-    """Resolve a config path relative to project root."""
-    path_str = load_config().get(key, default)
-    p = Path(path_str)
-    if p.is_absolute():
-        return p
-    return PROJECT_ROOT / p
+

@@ -1,7 +1,7 @@
 """Filter: remove dead links, deduplicate, and select best stream per channel."""
 
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import ChannelRecord, CheckResult, StreamEntry, StreamStatus
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 def filter_alive(
     entries: List[StreamEntry],
     results: List[CheckResult],
-) -> Tuple[List[ChannelRecord], List[ChannelRecord]]:
+) -> Tuple[List[ChannelRecord], List[ChannelRecord], Dict[str, float]]:
     """Filter streams by check results.
 
     Args:
@@ -19,7 +19,8 @@ def filter_alive(
         results: Corresponding check results (same order).
 
     Returns:
-        Tuple of (alive_channels, dead_channels) as ChannelRecord lists.
+        Tuple of (alive_channels, dead_channels, source_health).
+        source_health maps source_id → alive_ratio for downstream dedup.
     """
     # Build URL → CheckResult map
     result_map: Dict[str, CheckResult] = {r.url: r for r in results}
@@ -70,7 +71,7 @@ def filter_alive(
             dead.append(record)
 
     logger.info(f"Filter: {len(alive)} alive, {len(dead)} dead")
-    return alive, dead
+    return alive, dead, source_health
 
 
 def dedup_by_url(records: List[ChannelRecord]) -> List[ChannelRecord]:
@@ -84,26 +85,33 @@ def dedup_by_url(records: List[ChannelRecord]) -> List[ChannelRecord]:
     return result
 
 
-def dedup_by_name(records: List[ChannelRecord]) -> List[ChannelRecord]:
+def dedup_by_name(records: List[ChannelRecord],
+                  source_health: Optional[Dict[str, float]] = None) -> List[ChannelRecord]:
     """Deduplicate by tvg-id and channel name similarity.
 
     Priority: tvg-id group > normalized name group.
     Picks the best candidate by weighted score:
       stability (source health) > playability (CORS + video) > quality > latency.
+
+    Args:
+        records: Channel records to deduplicate.
+        source_health: Pre-computed per-source health ratios. If None, computed
+                       from records (slower, duplicates filter_alive work).
     """
     from collections import defaultdict
 
     # ── per‑source health for stability weighting ──────────────────────
-    src_total: Dict[str, int] = {}
-    src_alive: Dict[str, int] = {}
-    for r in records:
-        key = r.source or "__unknown__"
-        src_total[key] = src_total.get(key, 0) + 1
-        if r.status == StreamStatus.ALIVE:
-            src_alive[key] = src_alive.get(key, 0) + 1
-    source_health = {
-        s: src_alive.get(s, 0) / max(src_total[s], 1) for s in src_total
-    }
+    if source_health is None:
+        src_total: Dict[str, int] = {}
+        src_alive: Dict[str, int] = {}
+        for r in records:
+            key = r.source or "__unknown__"
+            src_total[key] = src_total.get(key, 0) + 1
+            if r.status == StreamStatus.ALIVE:
+                src_alive[key] = src_alive.get(key, 0) + 1
+        source_health = {
+            s: src_alive.get(s, 0) / max(src_total[s], 1) for s in src_total
+        }
 
     def _score(r: ChannelRecord) -> float:
         return _channel_score(r, source_health.get(r.source or "__unknown__", 0.5))
@@ -159,7 +167,7 @@ def _channel_score(r: ChannelRecord, source_alive_ratio: float = 0.5) -> float:
     return (
         stability * 50
         + (1 if r.has_video else 0) * 8
-        + _resolution_score(r.resolution) / 500_000
+        + resolution_score(r.resolution) / 500_000
         + (3000 - min(r.latency_ms, 3000)) / 30
     )
 
@@ -187,7 +195,7 @@ def _normalize_name(name: str) -> str:
     return n.lower()
 
 
-def _resolution_score(resolution: str) -> int:
+def resolution_score(resolution: str) -> int:
     """Convert resolution string to a score for comparison (higher = better)."""
     # e.g. "1920x1080" → 1920*1080 ≈ 2M
     if "x" in resolution.lower():

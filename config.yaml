@@ -43,7 +43,6 @@ epg:
 
 # ---- m3u8 生成 ----
 generator:
-  https_only: false                        # 设为 true 则只输出 HTTPS 链接的频道
   main_file: live.m3u8                     # 主输出文件名
   output_dir: data                          # 输出目录
 

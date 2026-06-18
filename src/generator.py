@@ -1,5 +1,6 @@
 """M3U8 file generator: produces standard IPTV channel playlists."""
 
+import aiohttp
 import asyncio
 import hashlib
 import json
@@ -107,34 +108,34 @@ async def cache_logos(records: List[ChannelRecord]) -> Dict[str, str]:
         logger.info(f"Logo cache: all {len(manifest)} logos already cached")
         return manifest
 
-    # Download missing logos concurrently.
+    # Download missing logos concurrently — share one session for keep-alive reuse.
     # Remove from manifest on failure so the m3u8 keeps the original remote URL.
     sem = asyncio.Semaphore(10)
     downloaded = 0
+    timeout = aiohttp.ClientTimeout(total=8, connect=3)
 
-    async def _dl(url: str, dest: Path) -> None:
+    async def _dl(url: str, dest: Path, sess: aiohttp.ClientSession) -> None:
         nonlocal downloaded
         async with sem:
             try:
-                import aiohttp
-                timeout = aiohttp.ClientTimeout(total=8, connect=3)
-                async with aiohttp.ClientSession(timeout=timeout) as sess:
-                    async with sess.get(url, allow_redirects=True) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            if data:
-                                dest.write_bytes(data)
-                                downloaded += 1
-                        else:
-                            del manifest[url]
-                            logger.debug(f"Logo cache: HTTP {resp.status} for {url}")
+                async with sess.get(url, allow_redirects=True) as resp:
+                    if resp.status == 200:
+                        data = await resp.read()
+                        if data:
+                            dest.write_bytes(data)
+                            downloaded += 1
+                    else:
+                        del manifest[url]
+                        logger.debug(f"Logo cache: HTTP {resp.status} for {url}")
             except asyncio.CancelledError:
                 raise
             except Exception:
                 del manifest[url]
                 logger.debug(f"Logo cache: download failed for {url}")
 
-    await asyncio.gather(*[_dl(url, dest) for url, dest in to_download])
+    async with aiohttp.ClientSession(timeout=timeout) as _session:
+        await asyncio.gather(*[_dl(url, dest, _session) for url, dest in to_download])
+
     logger.info(
         f"Logo cache: {downloaded} downloaded, "
         f"{len(to_download) - downloaded} failed out of {len(to_download)}"

@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +37,7 @@ from .auth import (
 )
 from .collector import _migrate_sources_from_config
 from .config import PROJECT_ROOT, get_web_config, get_generator_config
+from .filter import resolution_score
 from .generator import load_state, _render_m3u8
 from .scheduler import create_scheduler, run_pipeline
 from .store import get_sources_store, get_users_store
@@ -339,6 +340,60 @@ def _get_cached_logo_url(ch: ChannelRecord) -> str:
     return ""
 
 
+def _filter_m3u8_https_cors(
+    content: str,
+    https_only: bool = False,
+    cors_only: bool = False,
+    cors_urls: Optional[set] = None,
+) -> str:
+    """Remove EXTINF+URL pairs that don't match https/cors constraints.
+
+    Args:
+        content: Raw m3u8 text.
+        https_only: Keep only HTTPS URLs.
+        cors_only: Keep only CORS-compatible URLs.
+        cors_urls: Pre-computed set of CORS-compatible URLs. If None and cors_only
+                   is True, loads from DB (slower, prefer pre-computing).
+
+    Returns:
+        Filtered m3u8 text (EXTINF+URL pairs removed atomically).
+    """
+    if not https_only and not cors_only:
+        return content
+
+    if cors_only and cors_urls is None:
+        cors_urls = {ch.url for ch in load_state() if ch.has_cors}
+
+    lines = content.splitlines(keepends=True)
+    filtered = []
+    pending_extinf: Optional[str] = None
+    for line in lines:
+        is_extinf = line.startswith("#EXTINF:")
+        is_url = not is_extinf and (line.startswith("http://") or line.startswith("https://"))
+
+        if is_extinf:
+            pending_extinf = line
+            continue
+        elif pending_extinf is not None and is_url:
+            drop = False
+            if https_only and line.startswith("http://"):
+                drop = True
+            if cors_only and line.strip() not in (cors_urls or set()):
+                drop = True
+            if not drop:
+                filtered.append(pending_extinf)
+                filtered.append(line)
+            pending_extinf = None
+        else:
+            if pending_extinf is not None:
+                filtered.append(pending_extinf)
+                pending_extinf = None
+            filtered.append(line)
+    if pending_extinf is not None:
+        filtered.append(pending_extinf)
+    return "".join(filtered)
+
+
 def _serve_favorites_m3u8(
     user: dict,
     https_only: bool = False,
@@ -391,44 +446,9 @@ def _serve_favorites_m3u8(
     # Apply user group filter
     content = _filter_m3u8_by_groups(content, user)
 
-    # Apply https / cors filters — remove BOTH EXTINF and trailing URL together
-    if https_only or cors_only:
-        cors_urls: set = set()
-        if cors_only:
-            cors_urls = {ch.url for ch in channels if ch.has_cors}
-        lines = content.splitlines(keepends=True)
-        filtered = []
-        pending_extinf: Optional[str] = None  # EXTINF line buffered, waiting for its URL
-        for line in lines:
-            is_extinf = line.startswith("#EXTINF:")
-            is_url = not is_extinf and (line.startswith("http://") or line.startswith("https://"))
-
-            if is_extinf:
-                pending_extinf = line
-                continue  # buffer, don't emit yet
-            elif pending_extinf is not None and is_url:
-                # Now we have the pair — decide whether to keep or drop
-                drop = False
-                if https_only and line.startswith("http://"):
-                    drop = True
-                if cors_only and line.strip() not in cors_urls:
-                    drop = True
-                if not drop:
-                    filtered.append(pending_extinf)
-                    filtered.append(line)
-                pending_extinf = None
-            else:
-                # Pass through (header, blank lines, etc.)
-                if pending_extinf is not None:
-                    # EXTINF followed by something that isn't a URL —
-                    # unlikely, but flush it just in case
-                    filtered.append(pending_extinf)
-                    pending_extinf = None
-                filtered.append(line)
-        # Flush trailing EXTINF if any
-        if pending_extinf is not None:
-            filtered.append(pending_extinf)
-        content = "".join(filtered)
+    # Apply https / cors filters
+    cors_urls = {ch.url for ch in channels if ch.has_cors} if cors_only else None
+    content = _filter_m3u8_https_cors(content, https_only, cors_only, cors_urls=cors_urls)
 
     # Rewrite EPG url-tvg to token-protected endpoint
     if user and user.get("subscription_token"):
@@ -1032,8 +1052,8 @@ def _validate_subscription_token(token: str) -> dict:
 
 def _filter_m3u8_by_groups(content: str, user: dict) -> str:
     """Filter m3u8 content to only include channels from user's subscribed groups."""
-    groups_str = user.get("subscribed_groups", "*")
-    if not groups_str or groups_str.strip() == "*":
+    groups_str = user.get("subscribed_groups")
+    if groups_str is None or groups_str.strip() == "*":
         return content
     allowed = set(g.strip() for g in groups_str.split(",") if g.strip())
 
@@ -1042,10 +1062,9 @@ def _filter_m3u8_by_groups(content: str, user: dict) -> str:
     skip_active = False  # True = current block (EXTINF + following lines) is filtered out
     for line in lines:
         if line.startswith("#EXTINF:"):
-            if allowed:
-                m = _RE_GROUP_TITLE.search(line)
-                group_name = m.group(1) if m else ""
-                skip_active = group_name not in allowed
+            m = _RE_GROUP_TITLE.search(line)
+            group_name = m.group(1) if m else ""
+            skip_active = group_name not in allowed
             if skip_active:
                 continue  # skip this EXTINF line
 
@@ -1078,38 +1097,9 @@ def _serve_m3u8_file(path: Path, https_only: bool = False, cors_only: bool = Fal
     if user:
         content = _filter_m3u8_by_groups(content, user)
 
-    if https_only or cors_only:
-        channels = load_state()
-        cors_urls = {ch.url for ch in channels if ch.has_cors}
-
-        lines = content.splitlines(keepends=True)
-        filtered = []
-        pending_extinf: Optional[str] = None
-        for line in lines:
-            is_extinf = line.startswith("#EXTINF:")
-            is_url = not is_extinf and (line.startswith("http://") or line.startswith("https://"))
-
-            if is_extinf:
-                pending_extinf = line
-                continue
-            elif pending_extinf is not None and is_url:
-                drop = False
-                if https_only and line.startswith("http://"):
-                    drop = True
-                if cors_only and line.strip() not in cors_urls:
-                    drop = True
-                if not drop:
-                    filtered.append(pending_extinf)
-                    filtered.append(line)
-                pending_extinf = None
-            else:
-                if pending_extinf is not None:
-                    filtered.append(pending_extinf)
-                    pending_extinf = None
-                filtered.append(line)
-        if pending_extinf is not None:
-            filtered.append(pending_extinf)
-        content = "".join(filtered)
+    # Apply https / cors filters
+    cors_urls = {ch.url for ch in load_state() if ch.has_cors} if cors_only else None
+    content = _filter_m3u8_https_cors(content, https_only, cors_only, cors_urls=cors_urls)
 
     # Rewrite EPG url-tvg to token-protected endpoint
     if user and user.get("subscription_token"):
@@ -1256,7 +1246,7 @@ async def api_channels(
     if sort and sort in sort_map:
         reverse = order == "desc"
         if sort == "resolution":
-            channels.sort(key=lambda c: _resolution_sort_key(c.resolution or ""), reverse=reverse)
+            channels.sort(key=lambda c: resolution_score(c.resolution or ""), reverse=reverse)
         else:
             channels.sort(key=sort_map[sort], reverse=reverse)
 
@@ -1268,20 +1258,6 @@ async def api_channels(
         "pages": max(1, (total + size - 1) // size) if total > 0 else 1,
         "data": [ch.to_dict() for ch in page_data],
     }
-
-
-def _resolution_sort_key(res: str) -> int:
-    """Convert resolution string to sortable integer."""
-    if "x" in res.lower():
-        try:
-            w, h = res.lower().replace("x", " ").split()[:2]
-            return int(w) * int(h)
-        except (ValueError, IndexError):
-            pass
-    if "4k" in res.lower() or "2160" in res: return 3840 * 2160
-    if "1080" in res: return 1920 * 1080
-    if "720" in res: return 1280 * 720
-    return 0
 
 
 @app.get("/api/channels/{channel_id}")
@@ -1820,7 +1796,7 @@ async def page_channels(
     }
     if sort and sort in sort_map:
         if sort == "resolution":
-            channels.sort(key=lambda c: _resolution_sort_key(c.resolution or ""), reverse=order == "desc")
+            channels.sort(key=lambda c: resolution_score(c.resolution or ""), reverse=order == "desc")
         else:
             channels.sort(key=sort_map[sort], reverse=order == "desc")
 

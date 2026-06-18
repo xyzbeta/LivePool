@@ -54,7 +54,7 @@ async def run_pipeline(progress_callback=None) -> Stats:
 
     # 3. Filter — build ChannelRecord for every entry (preserve full counts)
     _progress("filter", "正在整理校验结果...")
-    alive_raw, dead_raw = filter_alive(entries, results)
+    alive_raw, dead_raw, source_health = filter_alive(entries, results)
 
     # 4. Classify all records (alive + dead) for complete state
     _progress("classify", "正在分类...")
@@ -67,7 +67,7 @@ async def run_pipeline(progress_callback=None) -> Stats:
     # 5. Dedup + Generate (alive only, deduped for cleaner m3u8)
     _progress("generate", "正在去重并生成 m3u8...")
     alive_dedup = dedup_by_url(alive_raw)
-    alive_dedup = dedup_by_name(alive_dedup)
+    alive_dedup = dedup_by_name(alive_dedup, source_health=source_health)
 
     # Cache logos to local storage for faster / more reliable serving
     _progress("cache_logos", "正在缓存频道图标到本地...")

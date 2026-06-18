@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List
 
 import aiohttp
 
@@ -14,6 +14,7 @@ from .config import (
     get_local_seeds,
     get_validator_config,
 )
+from .filter import dedup_by_url
 from .parser import parse_m3u8_file, parse_txt_urls
 from .sources import GitHubM3UCrawler, RawM3UCrawler
 from .store import get_sources_store
@@ -80,7 +81,7 @@ def _build_crawlers() -> List:
     return crawlers
 
 
-def _import_local_seeds() -> List[StreamEntry]:
+async def _import_local_seeds() -> List[StreamEntry]:
     """Import stream entries from local seed files in sources/ directory."""
     entries: List[StreamEntry] = []
     sources_dir = PROJECT_ROOT / "data" / "sources"
@@ -103,17 +104,18 @@ def _import_local_seeds() -> List[StreamEntry]:
                 + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.txt")]
             )
 
-    # Filter disabled seeds (state stored in SQLite)
+    # Filter disabled seeds (state stored in SQLite, async-safe via aiosqlite)
     _seed_enabled = {}
     try:
-        import sqlite3 as _sqlite3
+        import aiosqlite as _aiosqlite
         from .store import DB_PATH
-        _conn = _sqlite3.connect(str(DB_PATH))
-        _conn.row_factory = _sqlite3.Row
-        _conn.execute("CREATE TABLE IF NOT EXISTS local_seeds (filename TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1)")
-        for _row in _conn.execute("SELECT filename, enabled FROM local_seeds").fetchall():
-            _seed_enabled[_row["filename"]] = bool(_row["enabled"])
-        _conn.close()
+        _conn = await _aiosqlite.connect(str(DB_PATH))
+        await _conn.execute("PRAGMA journal_mode=WAL")
+        await _conn.execute("CREATE TABLE IF NOT EXISTS local_seeds (filename TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1)")
+        _rows = await (await _conn.execute("SELECT filename, enabled FROM local_seeds")).fetchall()
+        for _row in _rows:
+            _seed_enabled[_row[0]] = bool(_row[1])
+        await _conn.close()
     except Exception:
         pass
     local_seeds = [
@@ -152,8 +154,8 @@ async def collect() -> List[StreamEntry]:
     """
     all_entries: List[StreamEntry] = []
 
-    # 1. Import local seeds (synchronous, fast)
-    local_entries = _import_local_seeds()
+    # 1. Import local seeds
+    local_entries = await _import_local_seeds()
     all_entries.extend(local_entries)
     logger.info(f"Local seeds: {len(local_entries)} entries")
 
@@ -183,17 +185,8 @@ async def collect() -> List[StreamEntry]:
             all_entries.extend(result)
 
     # 3. Deduplicate by URL
-    unique = _dedup(all_entries)
+    unique = dedup_by_url(all_entries)
     logger.info(f"Total collected: {len(all_entries)}, unique: {len(unique)}")
     return unique
 
 
-def _dedup(entries: List[StreamEntry]) -> List[StreamEntry]:
-    """Deduplicate by URL, keeping first occurrence."""
-    seen: Set[str] = set()
-    result: List[StreamEntry] = []
-    for e in entries:
-        if e.url not in seen:
-            seen.add(e.url)
-            result.append(e)
-    return result
