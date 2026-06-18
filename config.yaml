@@ -18,18 +18,18 @@ classifier:
 
 # ---- 采集器 ----
 collector:
-  crawlers:                               # 远程采集源列表（已全部禁用，改为本地文件读取）
-  - enabled: false
+  crawlers:                               # 远程采集源列表（也可通过 Web UI → 采集源管理页维护）
+  - enabled: true
     name: github_iptv_org
-    type: github_m3u
+    type: github_m3u                       # github_m3u = 从 GitHub 等静态托管拉取 m3u8
     urls:
     - https://raw.githubusercontent.com/iptv-org/iptv/master/channels.m3u
-  - enabled: false
+  - enabled: true
     name: fanmingming_ipv6
-    type: raw_m3u
+    type: raw_m3u                          # raw_m3u = 通用 HTTP m3u8 链接
     urls:
     - https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u
-  - enabled: false
+  - enabled: true
     name: yuechan_live
     type: raw_m3u
     urls:
