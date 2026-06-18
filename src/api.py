@@ -1398,7 +1398,6 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
     """List local seed files with channel stats."""
     import json
     import os as _os
-    from datetime import datetime as _dt
 
     seeds_dir = PROJECT_ROOT / "data" / "sources"
     if not seeds_dir.exists():
@@ -1425,13 +1424,26 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
         if ch.status == StreamStatus.ALIVE:
             url_alive[src] = url_alive.get(src, 0) + 1
 
+    # Get last pipeline run time from stats_history
+    _pipeline_time = ""
+    try:
+        db = await _get_db()
+        try:
+            cursor = await db.execute("SELECT timestamp FROM stats_history ORDER BY id DESC LIMIT 1")
+            row = await cursor.fetchone()
+            if row:
+                _pipeline_time = row["timestamp"][:16].replace("T", " ") if row["timestamp"] else ""
+        finally:
+            await db.close()
+    except Exception:
+        pass
+
     seeds = []
     for f in sorted(seeds_dir.iterdir()):
         if not f.is_file() or f.suffix.lower() not in (".m3u", ".m3u8", ".txt"):
             continue
         fname = f.name
         enabled = state.get(fname, True)
-        mtime = _dt.fromtimestamp(f.stat().st_mtime).isoformat() if f.stat().st_mtime else ""
 
         # Count channels that came from this file
         file_path_str = str(f)
@@ -1442,7 +1454,7 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
             "name": fname,
             "size": f.stat().st_size,
             "enabled": enabled,
-            "last_fetch_at": mtime,
+            "last_fetch_at": _pipeline_time,
             "channels_total": total,
             "channels_alive": alive,
         })
