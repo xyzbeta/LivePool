@@ -103,18 +103,22 @@ def _import_local_seeds() -> List[StreamEntry]:
                 + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.txt")]
             )
 
-    # Filter disabled seeds (from Web UI toggle)
-    import json as _json
-    _state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
-    _seed_state = {}
-    if _state_file.exists():
-        try:
-            _seed_state = _json.loads(_state_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    # Filter disabled seeds (state stored in SQLite)
+    _seed_enabled = {}
+    try:
+        import sqlite3 as _sqlite3
+        from .store import DB_PATH
+        _conn = _sqlite3.connect(str(DB_PATH))
+        _conn.row_factory = _sqlite3.Row
+        _conn.execute("CREATE TABLE IF NOT EXISTS local_seeds (filename TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1)")
+        for _row in _conn.execute("SELECT filename, enabled FROM local_seeds").fetchall():
+            _seed_enabled[_row["filename"]] = bool(_row["enabled"])
+        _conn.close()
+    except Exception:
+        pass
     local_seeds = [
         s for s in local_seeds
-        if _seed_state.get(Path(s).name, {}).get("enabled", True)
+        if _seed_enabled.get(Path(s).name, True)
     ]
 
     for seed_path_str in local_seeds:

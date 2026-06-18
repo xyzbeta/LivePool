@@ -1428,14 +1428,16 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
     if not seeds_dir.exists():
         return {"seeds": []}
 
-    # Read enable/disable state
-    state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
-    state = {}
-    if state_file.exists():
-        try:
-            state = json.loads(state_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    # Read enable/disable state from SQLite
+    from .store import _get_db, _ensure_tables
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "local_seeds")
+        cursor = await db.execute("SELECT filename, enabled FROM local_seeds")
+        state_rows = await cursor.fetchall()
+        state = {row["filename"]: bool(row["enabled"]) for row in state_rows}
+    finally:
+        await db.close()
 
     # Load channels to count per-source
     channels = _get_channels()
@@ -1452,8 +1454,7 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
         if not f.is_file() or f.suffix.lower() not in (".m3u", ".m3u8", ".txt"):
             continue
         fname = f.name
-        file_stat = state.get(fname, {})
-        enabled = file_stat.get("enabled", True)
+        enabled = state.get(fname, True)
         mtime = _dt.fromtimestamp(f.stat().st_mtime).isoformat() if f.stat().st_mtime else ""
 
         # Count channels that came from this file
@@ -1463,7 +1464,6 @@ async def api_local_seeds(admin: dict = Depends(require_admin)):
 
         seeds.append({
             "name": fname,
-            "type": "local_file",
             "size": f.stat().st_size,
             "enabled": enabled,
             "last_fetch_at": mtime,
@@ -1493,17 +1493,17 @@ async def api_toggle_local_seed(filename: str, request: Request, admin: dict = D
     body = await request.json()
     enabled = body.get("enabled", True)
 
-    state_file = PROJECT_ROOT / "data" / "local_seeds_state.json"
-    state = {}
-    if state_file.exists():
-        try:
-            state = json.loads(state_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    state[filename] = {"enabled": enabled}
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    from .store import _get_db, _ensure_tables
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "local_seeds")
+        await db.execute(
+            "INSERT OR REPLACE INTO local_seeds (filename, enabled) VALUES (?, ?)",
+            (filename, 1 if enabled else 0),
+        )
+        await db.commit()
+    finally:
+        await db.close()
     return {"ok": True}
 
 

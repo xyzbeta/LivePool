@@ -149,6 +149,13 @@ async def _ensure_tables(db: aiosqlite.Connection, key: str):
                 duration_sec REAL
             )
         """)
+    elif key == "local_seeds":
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS local_seeds (
+                filename TEXT PRIMARY KEY,
+                enabled INTEGER DEFAULT 1
+            )
+        """)
     await db.commit()
 
 
