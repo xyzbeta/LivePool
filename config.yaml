@@ -34,15 +34,7 @@ collector:
     type: raw_m3u
     urls:
     - https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
-  local_seeds:                             # 本地种子文件（放入 data/sources/ 目录）
-  - data/sources/github_iptv_org.m3u
-  - data/sources/fanmingming_ipv6.m3u
-  - data/sources/yuechan_live.m3u
-  - data/sources/iptv_org_cn.m3u
-  - data/sources/collect_iptv.m3u
-  - data/sources/best_fan_cctv.m3u8
-  - data/sources/best_fan_province.m3u8
-  - data/sources/best_fan_pay.m3u8
+  local_seeds: []                          # 为空时自动扫描 data/sources/ 目录下所有 .m3u8/.txt 文件
   timeout: 30                              # 采集远程源的单次 HTTP 超时（秒）
 
 # ---- EPG 节目指南（通过 Web UI → 采集源管理页配置）----

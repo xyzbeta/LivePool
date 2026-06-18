@@ -87,9 +87,10 @@ def _import_local_seeds() -> List[StreamEntry]:
 
     local_seeds = get_local_seeds()
     if not local_seeds and sources_dir.exists():
-        # Auto-discover: all .m3u8 and .txt files
+        # Auto-discover: all .m3u8, .m3u and .txt files
         local_seeds = sorted(
             [str(p.relative_to(PROJECT_ROOT)) for p in sources_dir.glob("*.m3u8")]
+            + [str(p.relative_to(PROJECT_ROOT)) for p in sources_dir.glob("*.m3u")]
             + [str(p.relative_to(PROJECT_ROOT)) for p in sources_dir.glob("*.txt")]
         )
     if not local_seeds:
@@ -98,6 +99,7 @@ def _import_local_seeds() -> List[StreamEntry]:
         if legacy_dir.exists():
             local_seeds = sorted(
                 [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.m3u8")]
+                + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.m3u")]
                 + [str(p.relative_to(PROJECT_ROOT)) for p in legacy_dir.glob("*.txt")]
             )
 
