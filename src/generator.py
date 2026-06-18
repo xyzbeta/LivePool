@@ -173,54 +173,36 @@ def generate(
     records: List[ChannelRecord],
     output_dir: Optional[Path] = None,
     main_file: Optional[str] = None,
-    per_group: Optional[bool] = None,
-    per_group_dir: Optional[Path] = None,
     logo_cache: Optional[Dict[str, str]] = None,
 ) -> Path:
-    """Generate m3u8 output file(s) from classified channel records.
+    """Generate m3u8 output file from classified channel records.
 
     Args:
         records: Classified channel records (alive only).
         output_dir: Directory for output.
-        main_file: Filename for main combined m3u8.
-        per_group: Whether to also output per-group files.
-        per_group_dir: Directory for per-group files.
+        main_file: Filename for output.
         logo_cache: Mapping of original logo URLs to local paths,
                     returned by :func:`cache_logos`.  When provided,
                     ``tvg-logo`` attributes point at the local copy.
 
     Returns:
-        Path to the main output file.
+        Path to the output file.
     """
     cfg = get_generator_config()
-    output_dir = output_dir or PROJECT_ROOT / cfg.get("output_dir", "output")
+    output_dir = output_dir or PROJECT_ROOT / cfg.get("output_dir", "data")
     main_file = main_file or cfg.get("main_file", "live.m3u8")
-    per_group = per_group if per_group is not None else cfg.get("per_group", True)
-    per_group_dir = per_group_dir or PROJECT_ROOT / cfg.get("per_group_dir", "output/by_group")
 
     output_dir = Path(output_dir) if not isinstance(output_dir, Path) else output_dir
-    per_group_dir = Path(per_group_dir) if not isinstance(per_group_dir, Path) else per_group_dir
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Group records
+    # Group records (for rendering order, not per-group files)
     groups = _group_records(records)
 
     # Generate combined file — atomic write via temp + rename
     main_path = output_dir / main_file
     content = _render_m3u8(groups, records, logo_cache=logo_cache)
     _atomic_write_text(main_path, content)
-    logger.info(f"Generated main m3u8: {main_path} ({len(records)} channels)")
-
-    # Generate per-group files
-    if per_group:
-        per_group_dir.mkdir(parents=True, exist_ok=True)
-        for group_name, group_records in groups.items():
-            safe_name = _safe_filename(group_name)
-            group_path = per_group_dir / f"{safe_name}.m3u8"
-            group_content = _render_m3u8({group_name: group_records}, group_records, logo_cache=logo_cache)
-            _atomic_write_text(group_path, group_content)
-            logger.info(f"Generated group m3u8: {group_path} ({len(group_records)} channels)")
+    logger.info(f"Generated m3u8: {main_path} ({len(records)} channels)")
 
     return main_path
 
@@ -278,13 +260,6 @@ def _render_m3u8(
         parts.append("")
 
     return "".join(parts)
-
-
-def _safe_filename(name: str) -> str:
-    """Convert a group name to a safe filename."""
-    import re
-    safe = re.sub(r'[<>:"/\\|?*]', '_', name)
-    return safe.strip() or "other"
 
 
 def save_state(records: List[ChannelRecord]) -> None:

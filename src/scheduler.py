@@ -124,7 +124,7 @@ async def run_pipeline(progress_callback=None) -> Stats:
     stats.check_duration_sec = round(elapsed, 1)
 
     # Save snapshot for trend comparison
-    _save_stats_snapshot(stats)
+    await _save_stats_snapshot(stats)
 
     logger.info("=" * 60)
     logger.info(
@@ -136,19 +136,24 @@ async def run_pipeline(progress_callback=None) -> Stats:
     return stats
 
 
-def _save_stats_snapshot(stats: Stats):
-    """Save current stats as JSON for trend comparison."""
-    import json
-    from .config import PROJECT_ROOT
-    snap = {
-        "total": stats.total, "alive": stats.alive, "dead": stats.dead,
-        "timeout": stats.timeout, "error": stats.error, "audio": stats.audio,
-        "duration_sec": stats.check_duration_sec,
-        "last_check": stats.last_check,
-    }
-    path = PROJECT_ROOT / "data" / "stats_snapshot.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(snap, ensure_ascii=False), encoding="utf-8")
+async def _save_stats_snapshot(stats: Stats):
+    """Save current stats to SQLite stats_history for trend comparison."""
+    from .store import _get_db, _ensure_tables
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "stats")
+        await db.execute("""
+            INSERT INTO stats_history (timestamp, total, alive, dead, timeout, error, audio, duration_sec)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            stats.last_check or datetime.now().isoformat(),
+            stats.total, stats.alive, stats.dead,
+            stats.timeout, stats.error, stats.audio,
+            stats.check_duration_sec,
+        ))
+        await db.commit()
+    finally:
+        await db.close()
 
 
 # ---------------------------------------------------------------------------

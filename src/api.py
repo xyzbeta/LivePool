@@ -263,15 +263,17 @@ def _get_channels() -> List[ChannelRecord]:
     return _channels_cache
 
 
-def _get_stats() -> Stats:
-    import json, re as _re
+async def _get_stats() -> Stats:
+    import re as _re
+    from .store import _get_db
+
     cfg = get_generator_config()
     channels = _get_channels()
     stats = Stats()
 
     # ── alive count + group distribution → from m3u8 file (the actual
     # ── deduped output that users receive, so dashboard = subscription URL)
-    m3u8_path = PROJECT_ROOT / cfg.get("output_dir", "output") / cfg.get("main_file", "live.m3u8")
+    m3u8_path = PROJECT_ROOT / cfg.get("output_dir", "data") / cfg.get("main_file", "live.m3u8")
     if m3u8_path.exists():
         content = m3u8_path.read_text(encoding="utf-8")
         for line in content.splitlines():
@@ -300,14 +302,20 @@ def _get_stats() -> Stats:
     if timestamps:
         stats.last_check = max(timestamps)
 
-    # Load previous snapshot for trend
-    snap_path = PROJECT_ROOT / "data" / "stats_snapshot.json"
-    if snap_path.exists():
+    # Load previous stats from SQLite for trend comparison
+    try:
+        db = await _get_db()
+        from .store import _ensure_tables
+        await _ensure_tables(db, "stats")
         try:
-            prev = json.loads(snap_path.read_text())
-            stats.check_duration_sec = prev.get("duration_sec", 0)
-        except Exception:
-            pass
+            cursor = await db.execute("SELECT * FROM stats_history ORDER BY id DESC LIMIT 1")
+            row = await cursor.fetchone()
+            if row:
+                stats.check_duration_sec = dict(row).get("duration_sec", 0)
+        finally:
+            await db.close()
+    except Exception:
+        pass
 
     # Source health
     src_store = get_sources_store()
@@ -1120,7 +1128,7 @@ async def api_subscribe(request: Request, token: str, https: int = 0, cors: int 
     clean_token = token.removesuffix(".m3u8").removesuffix(".m3u")
     user = _validate_subscription_token(clean_token)
     cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("output_dir", "output") / cfg.get("main_file", "live.m3u8")
+    path = PROJECT_ROOT / cfg.get("output_dir", "data") / cfg.get("main_file", "live.m3u8")
     base_url = f"{request.url.scheme}://{request.url.netloc}"
     return _serve_m3u8_file(path, https_only=bool(https), cors_only=bool(cors), user=user, base_url=base_url)
 
@@ -1135,16 +1143,6 @@ async def api_subscribe_favorites(request: Request, token: str, https: int = 0, 
     return _serve_favorites_m3u8(user, base_url=base_url, https_only=bool(https), cors_only=bool(cors))
 
 
-@app.get("/api/subscribe/{token}/{group}", response_class=PlainTextResponse)
-async def api_subscribe_group(request: Request, token: str, group: str, https: int = 0, cors: int = 0):
-    """Subscription endpoint for a group. Add ?cors=1 for CORS-only."""
-    clean_group = group.removesuffix(".m3u8").removesuffix(".m3u")
-    user = _validate_subscription_token(token)
-    cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("per_group_dir", "output/by_group") / f"{clean_group}.m3u8"
-    base_url = f"{request.url.scheme}://{request.url.netloc}"
-    return _serve_m3u8_file(path, https_only=bool(https), cors_only=bool(cors), user=user, base_url=base_url)
-
 
 # ---------------------------------------------------------------------------
 # Short subscription URLs for IPTV players that reject API-looking paths
@@ -1157,7 +1155,7 @@ async def tv_subscribe(request: Request, token: str, https: int = 0, cors: int =
     clean_token = token.removesuffix(".m3u8").removesuffix(".m3u")
     user = _validate_subscription_token(clean_token)
     cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("output_dir", "output") / cfg.get("main_file", "live.m3u8")
+    path = PROJECT_ROOT / cfg.get("output_dir", "data") / cfg.get("main_file", "live.m3u8")
     base_url = f"{request.url.scheme}://{request.url.netloc}"
     return _serve_m3u8_file(path, https_only=bool(https), cors_only=bool(cors), user=user, base_url=base_url)
 
@@ -1172,15 +1170,6 @@ async def tv_subscribe_favorites(request: Request, token: str, https: int = 0, c
     return _serve_favorites_m3u8(user, base_url=base_url, https_only=bool(https), cors_only=bool(cors))
 
 
-@app.get("/tv/{token}/{group}", response_class=PlainTextResponse)
-async def tv_subscribe_group(request: Request, token: str, group: str, https: int = 0, cors: int = 0):
-    """Short subscription URL for a group. Add ?cors=1 for CORS-only."""
-    clean_group = group.removesuffix(".m3u8").removesuffix(".m3u")
-    user = _validate_subscription_token(token)
-    cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("per_group_dir", "output/by_group") / f"{clean_group}.m3u8"
-    base_url = f"{request.url.scheme}://{request.url.netloc}"
-    return _serve_m3u8_file(path, https_only=bool(https), cors_only=bool(cors), user=user, base_url=base_url)
 
 
 # ---------------------------------------------------------------------------
@@ -1219,7 +1208,7 @@ async def api_logo_serve(token: str, filename: str):
 async def api_download_m3u8(user: dict = Depends(get_current_user)):
     """Download the generated m3u8 file, filtered by subscribed groups (requires login)."""
     cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("output_dir", "output") / cfg.get("main_file", "live.m3u8")
+    path = PROJECT_ROOT / cfg.get("output_dir", "data") / cfg.get("main_file", "live.m3u8")
     if not path.exists():
         raise HTTPException(status_code=404, detail="M3U8 file not generated yet")
     content = path.read_text(encoding="utf-8")
@@ -1231,20 +1220,6 @@ async def api_download_m3u8(user: dict = Depends(get_current_user)):
     )
 
 
-@app.get("/api/m3u8/{group}", response_class=PlainTextResponse)
-async def api_download_m3u8_group(group: str, user: dict = Depends(get_current_user)):
-    """Download m3u8 for a specific group, filtered by subscribed groups (requires login)."""
-    cfg = get_generator_config()
-    path = PROJECT_ROOT / cfg.get("per_group_dir", "output/by_group") / f"{group}.m3u8"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Group '{group}' not found")
-    content = path.read_text(encoding="utf-8")
-    content = _filter_m3u8_by_groups(content, user)
-    return PlainTextResponse(
-        content=content,
-        media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename={group}.m3u8"},
-    )
 
 
 # ===========================================================================
@@ -1353,22 +1328,29 @@ async def api_favorite_toggle(channel_id: str, user: dict = Depends(get_current_
 
 @app.get("/api/stats")
 async def api_stats(user: dict = Depends(get_current_user)):
-    import json
-    stats = _get_stats()
+    from .store import _get_db
+    stats = await _get_stats()
 
     # Trend from previous snapshot
     trend = {}
-    snap_path = PROJECT_ROOT / "data" / "stats_snapshot.json"
-    if snap_path.exists():
+    try:
+        db = await _get_db()
+        from .store import _ensure_tables
+        await _ensure_tables(db, "stats")
         try:
-            prev = json.loads(snap_path.read_text())
-            trend = {
-                "prev_alive": prev.get("alive", stats.alive),
-                "prev_dead": prev.get("dead", stats.dead),
-                "prev_total": prev.get("total", stats.total),
-            }
-        except Exception:
-            pass
+            cursor = await db.execute("SELECT * FROM stats_history ORDER BY id DESC LIMIT 1 OFFSET 1")
+            row = await cursor.fetchone()
+            if row:
+                prev = dict(row)
+                trend = {
+                    "prev_alive": prev.get("alive", stats.alive),
+                    "prev_dead": prev.get("dead", stats.dead),
+                    "prev_total": prev.get("total", stats.total),
+                }
+        finally:
+            await db.close()
+    except Exception:
+        pass
 
     # Source health
     src_store = get_sources_store()
@@ -1387,15 +1369,7 @@ async def api_stats(user: dict = Depends(get_current_user)):
     }
 
 
-@app.get("/api/groups")
-async def api_groups(user: dict = Depends(get_current_user)):
-    stats = _get_stats()
-    return {
-        "groups": [
-            {"name": name, "count": count}
-            for name, count in sorted(stats.groups.items(), key=lambda x: -x[1])
-        ]
-    }
+
 
 
 # ===========================================================================
@@ -1715,7 +1689,7 @@ async def page_login(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def page_dashboard(request: Request, user: dict = Depends(get_current_user)):
-    stats = _get_stats()
+    stats = await _get_stats()
     fav_ids = set(user.get("favorites", []))
     favorite_count = sum(1 for ch in _get_channels() if ch.id in fav_ids and ch.status == StreamStatus.ALIVE)
     return _render("dashboard.html", {
@@ -1734,7 +1708,7 @@ async def page_channels(
     user: dict = Depends(get_current_user),
 ):
     channels = _get_channels()
-    stats = _get_stats()
+    stats = await _get_stats()
     if group: channels = [c for c in channels if c.group == group]
     if status: channels = [c for c in channels if c.status.value == status]
     if search:

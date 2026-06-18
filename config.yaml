@@ -14,17 +14,6 @@ auth:
 # ---- 频道分类 ----
 classifier:
   default_group: 其他                     # 无法自动分类的频道归入此分组
-  group_order:                            # 分组在 m3u8 文件和频道列表中的排序
-  - 央视频道
-  - 卫视频道
-  - 地方频道
-  - 海外频道
-  - 体育频道
-  - 电影频道
-  - 纪录频道
-  - 儿童频道
-  - 音乐频道
-  - 其他
   mapping_file: data/channels.json        # 频道名 → 分组的手动映射文件（JSON 格式）
 
 # ---- 采集器 ----
@@ -58,8 +47,6 @@ generator:
   https_only: false                        # 设为 true 则只输出 HTTPS 链接的频道
   main_file: live.m3u8                     # 主输出文件名
   output_dir: data                          # 输出目录
-  per_group: true                          # 是否同时按分组输出独立 m3u8 文件
-  per_group_dir: data/by_group             # 分组文件输出目录
 
 # ---- 日志 ----
 logging:
