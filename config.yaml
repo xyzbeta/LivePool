@@ -18,24 +18,31 @@ classifier:
 
 # ---- 采集器 ----
 collector:
-  crawlers:                               # 远程采集源列表（也可通过 Web UI → 采集源管理页维护）
-  - enabled: true
+  crawlers:                               # 远程采集源列表（已全部禁用，改为本地文件读取）
+  - enabled: false
     name: github_iptv_org
-    type: github_m3u                       # github_m3u = 从 GitHub 等静态托管拉取 m3u8
+    type: github_m3u
     urls:
     - https://raw.githubusercontent.com/iptv-org/iptv/master/channels.m3u
-  - enabled: true
+  - enabled: false
     name: fanmingming_ipv6
-    type: raw_m3u                          # raw_m3u = 通用 HTTP m3u8 链接
+    type: raw_m3u
     urls:
     - https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u
-  - enabled: true
+  - enabled: false
     name: yuechan_live
     type: raw_m3u
     urls:
     - https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
   local_seeds:                             # 本地种子文件（放入 data/sources/ 目录）
-  - data/sources/test_seed.m3u8
+  - data/sources/github_iptv_org.m3u
+  - data/sources/fanmingming_ipv6.m3u
+  - data/sources/yuechan_live.m3u
+  - data/sources/iptv_org_cn.m3u
+  - data/sources/collect_iptv.m3u
+  - data/sources/best_fan_cctv.m3u8
+  - data/sources/best_fan_province.m3u8
+  - data/sources/best_fan_pay.m3u8
   timeout: 30                              # 采集远程源的单次 HTTP 超时（秒）
 
 # ---- EPG 节目指南（通过 Web UI → 采集源管理页配置）----
