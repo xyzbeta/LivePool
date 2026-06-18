@@ -40,7 +40,6 @@ from .config import PROJECT_ROOT, get_web_config, get_generator_config
 from .generator import load_state, _render_m3u8
 from .scheduler import create_scheduler, run_pipeline
 from .store import get_sources_store, get_users_store
-from .validator import get_last_check_data
 
 logger = logging.getLogger(__name__)
 

@@ -55,17 +55,16 @@
       <thead>
         <tr>
           <th>文件名</th>
-          <th>类型</th>
           <th>大小</th>
           <th>频道数</th>
           <th>存活</th>
-          <th>修改时间</th>
+          <th>采集时间</th>
           <th>状态</th>
           <th>操作</th>
         </tr>
       </thead>
       <tbody id="local-seeds-tbody">
-        <tr><td colspan="8" style="text-align:center;padding:30px;">加载中...</td></tr>
+        <tr><td colspan="7" style="text-align:center;padding:30px;">加载中...</td></tr>
       </tbody>
     </table>
   </div>
@@ -470,6 +469,15 @@ setInterval(async function() {
 }, 10000);
 
 
+// Flash message helper (non-blocking notification)
+function showFlashMsg(msg) {
+  var el = document.createElement('div');
+  el.textContent = msg;
+  el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+  document.body.appendChild(el);
+  setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity 0.3s'; setTimeout(function(){ el.remove(); }, 300); }, 2500);
+}
+
 // ---- Local Seeds ----
 async function loadLocalSeeds() {
   try {
@@ -478,14 +486,14 @@ async function loadLocalSeeds() {
     const tbody = document.getElementById('local-seeds-tbody');
     if (!tbody) return;
     if (!data.seeds || data.seeds.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted);">暂无本地种子文件</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">暂无本地种子文件</td></tr>';
       return;
     }
     tbody.innerHTML = data.seeds.map(s => {
       const sizeStr = s.size > 1024 ? (s.size/1024).toFixed(0) + 'KB' : s.size + 'B';
       return '<tr>' +
         '<td style="font-weight:600;font-size:13px;">' + s.name + '</td>' +
-        '<td><code style="font-size:11px;">' + s.type + '</code></td>' +
+        
         '<td style="font-size:12px;">' + sizeStr + '</td>' +
         '<td>' + (s.channels_total||0) + '</td>' +
         '<td>' + (s.channels_alive > 0 ? '<span class="badge badge-alive">' + s.channels_alive + '</span>' : '0') + '</td>' +
@@ -497,7 +505,7 @@ async function loadLocalSeeds() {
     }).join('');
   } catch(e) {
     const tbody = document.getElementById('local-seeds-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
   }
 }
 
@@ -510,7 +518,7 @@ async function toggleLocalSeed(filename, newState) {
     });
     if (resp.ok) {
       loadLocalSeeds();
-      showFlashMsg(newState ? '已启用: ' + filename : '已禁用: ' + filename);
+      showFlashMsg(newState ? '✅ 已启用: ' + filename : '⛔ 已禁用: ' + filename);
     } else {
       const err = await resp.json();
       alert(err.detail || '操作失败');

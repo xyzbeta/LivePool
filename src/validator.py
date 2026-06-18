@@ -1,12 +1,10 @@
 """Async stream validator: concurrent HTTP probing + content validation."""
 
 import asyncio
-import json
 import logging
 import re
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -17,79 +15,8 @@ from .config import PROJECT_ROOT, get_validator_config
 
 logger = logging.getLogger(__name__)
 
-LAST_CHECK_FILE = PROJECT_ROOT / "data" / "last_check.json"
-
 # Number of bytes to read from GET response for content validation
 BODY_SAMPLE_SIZE = 2048
-
-# Dead‑URL backoff: skip a URL for this many hours once fail_count reaches threshold
-_SKIP_THRESHOLD = 999999  # disabled: always check all URLs for consistent stats
-_MAX_BACKOFF_HOURS = 168  # cap at 7 days
-
-
-def _load_last_check() -> dict:
-    if LAST_CHECK_FILE.exists():
-        try:
-            return json.loads(LAST_CHECK_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
-
-
-def _save_last_check(results: List[CheckResult]) -> None:
-    """Persist per-URL check results + fail_count for backoff decisions."""
-    prev = _load_last_check()
-    data = {}
-    now = datetime.now().isoformat()
-    for r in results:
-        prev_entry = prev.get(r.url, {})
-        prev_fail = prev_entry.get("fail_count", 0)
-
-        if r.is_alive:
-            fail_count = 0
-        elif r.error_msg and r.error_msg.startswith("[SKIPPED]"):
-            # Skip 结果不算新失败，保持 fail_count 不变，否则退避永不恢复
-            fail_count = prev_fail
-        else:
-            fail_count = prev_fail + 1
-
-        data[r.url] = {
-            "name": r.name,
-            "status": r.status.value,
-            "http_code": r.http_code,
-            "latency_ms": r.latency_ms,
-            "error_msg": r.error_msg,
-            "content_type": r.content_type,
-            "body_sample": r.body_sample[:128],
-            "has_cors": r.has_cors,
-            "has_video": r.has_video,
-            "checked_at": r.checked_at or now,
-            "fail_count": fail_count,
-        }
-    LAST_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LAST_CHECK_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _should_skip(url: str, prev_data: dict) -> bool:
-    """Return True if *url* should be skipped this cycle per exponential backoff."""
-    if url not in prev_data:
-        return False
-    prev = prev_data[url]
-    if prev.get("status") == "alive":
-        return False
-    fail_count = prev.get("fail_count", 0)
-    if fail_count < _SKIP_THRESHOLD:
-        return False
-    last_checked = prev.get("checked_at", "")
-    if not last_checked:
-        return False
-    try:
-        last_time = datetime.fromisoformat(last_checked)
-        backoff_hours = min(2 ** (fail_count - (_SKIP_THRESHOLD - 1)), _MAX_BACKOFF_HOURS)
-        elapsed_hours = (datetime.now() - last_time).total_seconds() / 3600
-        return elapsed_hours < backoff_hours
-    except (ValueError, TypeError):
-        return False
 
 
 async def validate(
@@ -114,39 +41,6 @@ async def validate(
     deep_check = cfg.get("deep_check", True)
     content_min = cfg.get("content_min_bytes", 256)
 
-    # --- dead‑URL backoff: separate "must‑check" from "skip‑this‑cycle" ---
-    prev_data = _load_last_check()
-    to_check: List[StreamEntry] = []
-    cached_results: List[CheckResult] = []
-    skipped_count = 0
-
-    for entry in entries:
-        if _should_skip(entry.url, prev_data):
-            prev = prev_data[entry.url]
-            cached_results.append(CheckResult(
-                url=entry.url,
-                name=entry.name,
-                status=StreamStatus(prev.get("status", "dead")),
-                http_code=prev.get("http_code", 0),
-                latency_ms=prev.get("latency_ms", 0),
-                error_msg=f"[SKIPPED] {prev.get('error_msg', '')}"[:200],
-                content_type=prev.get("content_type", ""),
-                body_sample=prev.get("body_sample", ""),
-                has_cors=prev.get("has_cors", False),
-                has_video=prev.get("has_video", False),
-                checked_at=prev.get("checked_at", ""),
-            ))
-            skipped_count += 1
-        else:
-            to_check.append(entry)
-
-    if skipped_count:
-        logger.info(
-            f"Skipping {skipped_count} dead URLs (backoff),"
-            f" checking {len(to_check)}/{len(entries)}"
-        )
-
-    # --- probe the URLs that passed backoff filter ---
     semaphore = asyncio.Semaphore(concurrency)
     connector = aiohttp.TCPConnector(limit=concurrency, limit_per_host=10)
     timeout = aiohttp.ClientTimeout(total=total_timeout, connect=connect_timeout, sock_read=read_timeout)
@@ -156,15 +50,15 @@ async def validate(
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
 
-    fresh_results: List[CheckResult] = []
-    if to_check:
+    results: List[CheckResult] = []
+    if entries:
         async with aiohttp.ClientSession(
             connector=connector,
             timeout=timeout,
             headers=headers,
             proxy=proxy,
         ) as session:
-            total = len(to_check)
+            total = len(entries)
             done_count = 0
 
             async def _check_with_progress(entry: StreamEntry) -> CheckResult:
@@ -175,16 +69,13 @@ async def validate(
                     progress_callback("validate", f"校验中: {done_count}/{total}")
                 return result
 
-            tasks = [_check_with_progress(entry) for entry in to_check]
-            fresh_results = await asyncio.gather(*tasks)
+            tasks = [_check_with_progress(entry) for entry in entries]
+            results = await asyncio.gather(*tasks)
 
-    all_results = fresh_results + cached_results
-    _save_last_check(all_results)
-
-    alive = sum(1 for r in all_results if r.is_alive)
-    dead = len(all_results) - alive
-    logger.info(f"Validation complete: {alive} alive, {dead} dead out of {len(all_results)}")
-    return all_results
+    alive = sum(1 for r in results if r.is_alive)
+    dead = len(results) - alive
+    logger.info(f"Validation complete: {alive} alive, {dead} dead out of {len(results)}")
+    return results
 
 
 async def _check_one(
@@ -346,11 +237,9 @@ async def _check_one(
 def _has_m3u_signature(text: str) -> bool:
     """Return True if *text* contains #EXTM3U / #EXTINF, tolerant of BOM
     and leading comment / blank lines that may appear before the header."""
-    # Strip UTF-8 BOM and leading whitespace
     cleaned = text.lstrip("﻿").lstrip()
     if "#EXTM3U" in cleaned[:512] or "#EXTINF" in cleaned[:512]:
         return True
-    # If not in first 512 bytes, scan line-by-line skipping comments
     for line in cleaned.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -358,7 +247,6 @@ def _has_m3u_signature(text: str) -> bool:
         if stripped.startswith("#EXTM3U") or stripped.startswith("#EXTINF"):
             return True
         if not stripped.startswith("#"):
-            # First non-comment, non-blank line is a URL — stop scanning
             break
     return False
 
@@ -369,20 +257,13 @@ def _extract_resolution_from_content(body_text: str, entry) -> None:
     if match:
         entry.resolution = match.group(1)
     else:
-        # Check EXTINF for tvg-resolution attribute
         match = re.search(r'tvg-resolution="(\d+x\d+)"', body_text)
         if match:
             entry.resolution = match.group(1)
 
 
 def _extract_first_segment(body_text: str, base_url: str, max_depth: int = 2) -> Optional[str]:
-    """Parse m3u8 content and return the absolute URL of the first *media* segment.
-
-    Handles variant (multi-bitrate) playlists: if the first non-comment URL is
-    itself an m3u8 playlist, it is NOT a media segment and will cause NAL scan
-    to misclassify the stream as audio-only.  This function skips child
-    playlists and returns the first actual segment (*.ts / *.aac / …) found.
-    """
+    """Parse m3u8 content and return the absolute URL of the first media segment."""
     lines = body_text.splitlines()
     for line in lines:
         line = line.strip()
@@ -394,8 +275,6 @@ def _extract_first_segment(body_text: str, base_url: str, max_depth: int = 2) ->
         else:
             url = urljoin(base_url, line)
 
-        # If this looks like a child playlist (variant stream), skip it.
-        # We want a real media segment for subsequent HEAD + NAL probing.
         if url.lower().endswith((".m3u8", ".m3u")):
             continue
 
@@ -425,8 +304,7 @@ async def _check_video(
     session: aiohttp.ClientSession,
     seg_url: str,
 ) -> tuple:
-    """Download first 8KB of a TS segment, scan for video NAL and estimate resolution.
-    Returns (has_video: bool, resolution: str)."""
+    """Download first 8KB of a TS segment, scan for video NAL and estimate resolution."""
     seg_size = 0
     try:
         headers = {"Range": "bytes=0-8191"}
@@ -438,7 +316,6 @@ async def _check_video(
         ) as resp:
             if resp.status not in (200, 206):
                 return (False, "")
-            # Try to get total segment size from Content-Range
             cr = resp.headers.get("Content-Range", "")
             if cr and "/" in cr:
                 try:
@@ -455,7 +332,6 @@ async def _check_video(
         return (False, "")
 
     has_video = False
-    # Scan for H.264/HEVC NAL unit start codes
     for i in range(len(data) - 5):
         if data[i] == 0 and data[i + 1] == 0 and data[i + 2] == 0 and data[i + 3] == 1:
             nal_type = data[i + 4] & 0x1F
@@ -476,7 +352,6 @@ async def _check_video(
                 has_video = True
                 break
 
-    # Estimate resolution from segment size
     resolution = ""
     if seg_size > 0:
         if seg_size > 1_500_000:
@@ -487,18 +362,3 @@ async def _check_video(
             resolution = "720x576"
 
     return (has_video, resolution)
-
-
-def get_last_check_data() -> dict:
-    return _load_last_check()
-
-def _classify_error(result) -> str:
-    msg = (result.error_msg or "").lower()
-    if "connection refused" in msg: return "connection_refused"
-    if "timeout" in msg or result.status.value == "timeout": return "timeout"
-    if "auth" in msg or "403" in msg: return "auth_required"
-    if "html" in msg: return "html_response"
-    if "missing #ext" in msg: return "invalid_m3u8"
-    if "segment" in msg: return "segment_dead"
-    if "audio" in msg: return "audio_only"
-    return "other"
