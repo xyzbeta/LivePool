@@ -263,25 +263,64 @@ def _render_m3u8(
     return "".join(parts)
 
 
-def save_state(records: List[ChannelRecord]) -> None:
-    """Persist channel state to SQLite atomically (single-connection bulk replace)."""
-    from .store import get_channels_store
+async def save_state(records: List[ChannelRecord]) -> None:
+    """Persist channel state — upsert new records, preserve favorited channels."""
+    from .store import _get_db, _ensure_tables, DB_PATH
+    import json as _json
+    import sqlite3 as _sqlite3
 
-    store = get_channels_store()
-    data = [
-        {
-            "id": r.id, "name": r.name, "url": r.url, "group": r.group,
-            "status": r.status.value, "latency_ms": r.latency_ms,
-            "resolution": r.resolution, "last_check": r.last_check,
-            "last_alive": r.last_alive, "source": r.source, "tvg_id": r.tvg_id,
-            "tvg_logo": r.tvg_logo,
-            "has_cors": int(r.has_cors), "has_video": int(r.has_video),
-            "score": r.score,
-        }
-        for r in records
-    ]
-    count = store.replace_all(data)
-    logger.info(f"Channel state saved: {count} records")
+    # Collect incoming channel IDs
+    incoming = {r.id for r in records}
+
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "channels")
+
+        # Upsert each record (INSERT OR REPLACE)
+        saved = 0
+        for r in records:
+            await db.execute(
+                """INSERT OR REPLACE INTO channels
+                   (id, name, url, "group", status, latency_ms, resolution,
+                    last_check, last_alive, source, tvg_id, tvg_logo,
+                    has_cors, has_video, score)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (r.id, r.name, r.url, r.group, r.status.value, r.latency_ms,
+                 r.resolution, r.last_check, r.last_alive, r.source, r.tvg_id,
+                 r.tvg_logo, int(r.has_cors), int(r.has_video), r.score),
+            )
+            saved += 1
+
+        # Delete channels no longer present — but KEEP any that are favorited
+        _fav_ids: set = set()
+        try:
+            _conn = _sqlite3.connect(str(DB_PATH))
+            _conn.row_factory = _sqlite3.Row
+            for _row in _conn.execute("SELECT favorites FROM users").fetchall():
+                _fav = _row["favorites"]
+                if isinstance(_fav, str):
+                    try:
+                        _fav = _json.loads(_fav)
+                    except Exception:
+                        _fav = []
+                for _fid in _fav:
+                    if isinstance(_fid, str) and _fid:
+                        _fav_ids.add(_fid)
+            _conn.close()
+        except Exception:
+            pass
+
+        _protected = incoming | _fav_ids
+        if _protected:
+            _placeholders = ",".join("?" for _ in _protected)
+            await db.execute(f"DELETE FROM channels WHERE id NOT IN ({_placeholders})", list(_protected))
+        else:
+            await db.execute("DELETE FROM channels")
+
+        await db.commit()
+        logger.info(f"Channel state saved: {saved} upserted, {len(incoming)} active, {len(_fav_ids)} favorited")
+    finally:
+        await db.close()
 
 
 def load_state() -> List[ChannelRecord]:

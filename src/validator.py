@@ -100,6 +100,21 @@ async def _check_one(
 
         # ── Phase 1: GET + content validation (inside semaphore) ─────────
         async with semaphore:
+            # Triple HEAD probe for stable latency (median of 3)
+            _latencies = []
+            _head_timeout = aiohttp.ClientTimeout(total=3, connect=1.5)
+            for _ in range(3):
+                _t0 = time.monotonic()
+                try:
+                    async with session.head(entry.url, allow_redirects=True, timeout=_head_timeout) as _hr:
+                        if _hr.status < 400:
+                            _latencies.append((time.monotonic() - _t0) * 1000)
+                except Exception:
+                    pass
+            if _latencies:
+                _latencies.sort()
+                result.latency_ms = round(_latencies[len(_latencies) // 2], 1)
+
             start = time.monotonic()
 
             try:
@@ -112,7 +127,6 @@ async def _check_one(
                     timeout=session.timeout,
                     headers={"Referer": referer},
                 ) as resp:
-                    result.latency_ms = round((time.monotonic() - start) * 1000, 1)
                     result.http_code = resp.status
                     result.content_type = resp.content_type or ""
                     result.has_cors = (
@@ -304,10 +318,10 @@ async def _check_video(
     session: aiohttp.ClientSession,
     seg_url: str,
 ) -> tuple:
-    """Download first 8KB of a TS segment, scan for video NAL and estimate resolution."""
+    """Download first 32KB of a TS segment, scan for video NAL and estimate resolution."""
     seg_size = 0
     try:
-        headers = {"Range": "bytes=0-8191"}
+        headers = {"Range": "bytes=0-32767"}
         async with session.get(
             seg_url,
             headers=headers,
@@ -322,7 +336,7 @@ async def _check_video(
                     seg_size = int(cr.rsplit("/", 1)[-1])
                 except ValueError:
                     pass
-            data = await resp.content.read(8192)
+            data = await resp.content.read(32768)
     except asyncio.CancelledError:
         raise
     except Exception:

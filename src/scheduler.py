@@ -62,7 +62,7 @@ async def run_pipeline(progress_callback=None) -> Stats:
     dead_raw = classify(dead_raw)
 
     # Save FULL state (all records) BEFORE dedup
-    save_state(alive_raw + dead_raw)
+    await save_state(alive_raw + dead_raw)
 
     # 5. Dedup + Generate (alive only, deduped for cleaner m3u8)
     _progress("generate", "正在去重并生成 m3u8...")
