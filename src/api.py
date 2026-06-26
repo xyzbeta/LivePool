@@ -7,7 +7,7 @@ import re
 import secrets
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -513,7 +513,7 @@ async def api_login(
 
 def _issue_login_token(user: dict, request: Request, remember_me: bool = False) -> JSONResponse:
     """Issue a real JWT and set session cookie."""
-    from datetime import timedelta, timezone
+    from datetime import timedelta
 
     if remember_me:
         expire = datetime.now(timezone.utc) + timedelta(days=30)
