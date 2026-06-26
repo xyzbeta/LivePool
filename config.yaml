@@ -36,6 +36,7 @@ collector:
     - https://raw.githubusercontent.com/YueChan/Live/main/IPTV.m3u
   local_seeds: []                          # 为空时自动扫描 data/sources/ 目录下所有 .m3u8/.txt 文件
   timeout: 30                              # 采集远程源的单次 HTTP 超时（秒）
+  proxy: null                              # 采集远程源的 HTTP 代理，如 http://127.0.0.1:7890
 
 # ---- EPG 节目指南（通过 Web UI → 采集源管理页配置）----
 epg:

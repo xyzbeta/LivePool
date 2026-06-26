@@ -25,7 +25,9 @@ from .auth import (
     create_temp_token,
     ensure_default_admin,
     get_current_user,
+    get_jwt_secret,
     get_logo_token,
+    get_token_expire_hours,
     hash_password,
     optional_user,
     register_user,
@@ -470,6 +472,7 @@ async def api_login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    remember_me: bool = Form(False),
 ):
     """Login: returns JWT + sets HttpOnly cookie. Supports 2FA verification and forced setup."""
     store = get_users_store()
@@ -480,27 +483,55 @@ async def api_login(
         raise HTTPException(status_code=403, detail="Account is disabled")
 
     # If force_2fa is on but not yet configured, force setup during login
+    from jose import jwt as _jwt
     if user.get("force_2fa", False) and not user.get("totp_enabled", False):
         temp_token = create_temp_token(user["id"])
         return JSONResponse({
             "2fa_setup_required": True,
             "temp_token": temp_token,
+            "remember_me": remember_me,
         })
 
     # If 2FA is enabled, return a temporary pre-auth token instead of the real JWT
     if user.get("totp_enabled", False):
-        temp_token = create_temp_token(user["id"])
+        # Embed remember_me in the temp_token payload for the 2FA step
+        _temp_payload = {
+            "sub": user["id"],
+            "type": "pre_auth",
+            "remember_me": remember_me,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iat": datetime.now(timezone.utc),
+        }
+        temp_token = _jwt.encode(_temp_payload, get_jwt_secret(), algorithm="HS256")
         return JSONResponse({
             "2fa_required": True,
             "temp_token": temp_token,
         })
 
-    return _issue_login_token(user, request)
+    return _issue_login_token(user, request, remember_me=remember_me)
 
 
-def _issue_login_token(user: dict, request: Request) -> JSONResponse:
+def _issue_login_token(user: dict, request: Request, remember_me: bool = False) -> JSONResponse:
     """Issue a real JWT and set session cookie."""
-    token = create_access_token(user["id"], user["role"])
+    from datetime import timedelta, timezone
+
+    if remember_me:
+        expire = datetime.now(timezone.utc) + timedelta(days=30)
+        max_age = 2592000  # 30 days
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(hours=get_token_expire_hours())
+        max_age = 86400  # 24 hours
+
+    from jose import jwt
+    payload = {
+        "sub": user["id"],
+        "role": user.get("role", "user"),
+        "type": "access",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(payload, get_jwt_secret(), algorithm="HS256")
+
     is_html = request.headers.get("accept", "").startswith("text/html")
 
     if is_html:
@@ -512,7 +543,7 @@ def _issue_login_token(user: dict, request: Request) -> JSONResponse:
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        max_age=86400,
+        max_age=max_age,
         samesite="lax",
     )
     return resp
@@ -546,9 +577,10 @@ async def api_login_2fa(
         raise HTTPException(status_code=400, detail="2FA not configured. Please login again.")
 
     import pyotp
+    remember_me = payload.get("remember_me", False)
     totp = pyotp.TOTP(secret)
     if totp.verify(totp_code, valid_window=1):
-        return _issue_login_token(user, request)
+        return _issue_login_token(user, request, remember_me=remember_me)
 
     # Try backup codes
     backup_codes = user.get("totp_backup_codes", [])

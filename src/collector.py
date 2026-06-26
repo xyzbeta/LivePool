@@ -173,6 +173,7 @@ async def collect() -> List[StreamEntry]:
         connector=aiohttp.TCPConnector(**connector_kwargs),
         timeout=aiohttp.ClientTimeout(total=timeout),
         headers=headers,
+        proxy=proxy,
     ) as session:
         tasks = [crawler.fetch(session) for crawler in crawlers]
         results = await asyncio.gather(*tasks, return_exceptions=True)

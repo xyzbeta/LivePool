@@ -399,3 +399,12 @@ def register_user(username: str, password: str, invite_code: str) -> dict:
         "role": new_user["role"],
         "subscription_token": new_user["subscription_token"],
     }
+
+
+# Public accessors for internal functions (used by api.py)
+def get_jwt_secret() -> str:
+    return _get_jwt_secret()
+
+
+def get_token_expire_hours() -> int:
+    return _get_token_expire_hours()
