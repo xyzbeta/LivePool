@@ -87,6 +87,16 @@
     <input type="text" id="epg-source" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:monospace;" placeholder="https://epg.51zmt.top:8000/e.xml">
     <button class="btn btn-primary" onclick="saveEpgConfig()" style="white-space:nowrap;">保存</button>
   </div>
+
+  <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:13px;font-weight:600;white-space:nowrap;">🔌 采集代理</span>
+      <input type="text" id="collector-proxy" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:monospace;" placeholder="http://127.0.0.1:7890">
+      <button class="btn btn-primary" onclick="saveProxyConfig()" style="white-space:nowrap;">保存</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">采集远程源时使用的 HTTP 代理地址，留空不启用代理。</p>
+  </div>
+
   <div id="epg-msg" style="font-size:13px;display:none;"></div>
 </div>
 {% endif %}
@@ -537,6 +547,45 @@ async function loadEpgConfig() {
     }
   } catch(e) {}
 }
+async function loadProxyConfig() {
+  try {
+    const resp = await fetch('/api/collector/proxy');
+    if (resp.ok) {
+      const data = await resp.json();
+      const el = document.getElementById('collector-proxy');
+      if (el) el.value = data.proxy || '';
+    }
+  } catch(e) {}
+}
+async function saveProxyConfig() {
+  const el = document.getElementById('collector-proxy');
+  if (!el) return;
+  const proxy = el.value.trim();
+  const msg = document.getElementById('epg-msg');
+  try {
+    const resp = await fetch('/api/collector/proxy', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({proxy: proxy || null}),
+    });
+    if (resp.ok) {
+      msg.textContent = proxy ? '✅ 代理已保存' : '✅ 代理已关闭';
+      msg.style.color = 'var(--success)';
+      msg.style.display = 'block';
+      setTimeout(function(){ msg.style.display = 'none' }, 3000);
+    } else {
+      const err = await resp.json();
+      msg.textContent = '❌ ' + (err.detail || '保存失败');
+      msg.style.color = 'var(--danger)';
+      msg.style.display = 'block';
+    }
+  } catch(e) {
+    msg.textContent = '❌ 网络错误';
+    msg.style.color = 'var(--danger)';
+    msg.style.display = 'block';
+  }
+}
+
 async function saveEpgConfig() {
   const el = document.getElementById('epg-source');
   if (!el) return;
@@ -567,6 +616,7 @@ async function saveEpgConfig() {
 }
 
 loadLocalSeeds();
+loadProxyConfig();
 loadSchedule();
 loadEpgConfig();
 {% endif %}

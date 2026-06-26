@@ -1656,6 +1656,28 @@ async def api_update_schedule(request: Request, admin: dict = Depends(require_ad
     return {"ok": True}
 
 
+@app.get("/api/collector/proxy")
+async def api_get_collector_proxy(admin: dict = Depends(require_admin)):
+    """Get collector proxy config."""
+    from .config import load_config
+    cfg = load_config()
+    return {"proxy": cfg.get("collector", {}).get("proxy", "")}
+
+
+@app.put("/api/collector/proxy")
+async def api_update_collector_proxy(request: Request, admin: dict = Depends(require_admin)):
+    """Update collector proxy config."""
+    body = await request.json()
+    import yaml
+    from .config import CONFIG_PATH, load_config, reload_config
+    cfg = load_config()
+    cfg.setdefault("collector", {})["proxy"] = body.get("proxy") or None
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, allow_unicode=True, default_flow_style=False)
+    reload_config()
+    return {"ok": True}
+
+
 @app.get("/api/epg/config")
 async def api_get_epg_config(admin: dict = Depends(require_admin)):
     """Get current EPG config."""
