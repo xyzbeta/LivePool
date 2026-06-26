@@ -17,7 +17,10 @@
       <label for="username">用户名</label>
       <input type="text" id="username" name="username" placeholder="用户名" required autofocus>
       <label for="password">密码</label>
-      <input type="password" id="password" name="password" placeholder="密码" required>
+      <div style="position:relative;">
+        <input type="password" id="password" name="password" placeholder="密码" required style="width:100%;padding-right:36px;">
+        <span onclick="togglePwd(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁️</span>
+      </div>
       <label class="toggle-label" style="margin-top:8px;justify-content:center;">
         <input type="checkbox" id="remember-me" name="remember_me" value="true" checked>
         <span class="toggle-text" style="font-size:13px;">记住登录状态（30 天）</span>
@@ -35,9 +38,15 @@
       <label for="reg-username">用户名</label>
       <input type="text" id="reg-username" placeholder="用户名" required>
       <label for="reg-password">密码</label>
-      <input type="password" id="reg-password" placeholder="密码" required>
+      <div style="position:relative;">
+        <input type="password" id="reg-password" placeholder="密码" required style="width:100%;padding-right:36px;">
+        <span onclick="togglePwd(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁️</span>
+      </div>
       <label for="reg-confirm">确认密码</label>
-      <input type="password" id="reg-confirm" placeholder="再次输入密码" required>
+      <div style="position:relative;">
+        <input type="password" id="reg-confirm" placeholder="再次输入密码" required style="width:100%;padding-right:36px;">
+        <span onclick="togglePwd(this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;user-select:none;">👁️</span>
+      </div>
       <label for="reg-code">邀请码</label>
       <div style="display:flex;gap:8px;">
         <input type="text" id="reg-code" placeholder="邀请码" required style="flex:1;">
@@ -110,6 +119,17 @@ const $ = id => document.getElementById(id);
 function showError(msg) {
   $('error').textContent = msg;
   $('error').style.display = 'block';
+}
+
+function togglePwd(el) {
+  var input = el.parentElement.querySelector('input');
+  if (input.type === 'password') {
+    input.type = 'text';
+    el.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    el.textContent = '👁️';
+  }
 }
 
 function backToLogin() {
