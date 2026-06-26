@@ -88,16 +88,24 @@
     <button class="btn btn-primary" onclick="saveEpgConfig()" style="white-space:nowrap;">保存</button>
   </div>
 
-  <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span style="font-size:13px;font-weight:600;white-space:nowrap;">🔌 采集代理</span>
-      <input type="text" id="collector-proxy" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:monospace;" placeholder="http://127.0.0.1:7890">
-      <button class="btn btn-primary" onclick="saveProxyConfig()" style="white-space:nowrap;">保存</button>
-    </div>
-    <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">采集远程源时使用的 HTTP 代理地址，留空不启用代理。</p>
-  </div>
-
   <div id="epg-msg" style="font-size:13px;display:none;"></div>
+</div>
+{% endif %}
+
+<!-- Proxy Config (admin only) -->
+{% if user and user.role == 'admin' %}
+<div style="margin-top:24px; background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+    <h4 style="margin:0;font-size:15px;">🔌 网络代理</h4>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+    配置 HTTP 代理后，系统采集远程 m3u8 源和拉取 EPG 节目数据时会通过代理访问。
+  </p>
+  <div style="display:flex;gap:8px;margin-bottom:8px;">
+    <input type="text" id="collector-proxy" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:monospace;" placeholder="http://127.0.0.1:7890">
+    <button class="btn btn-primary" onclick="saveProxyConfig()" style="white-space:nowrap;">保存</button>
+  </div>
+  <div id="proxy-msg" style="font-size:13px;display:none;"></div>
 </div>
 {% endif %}
 
@@ -561,7 +569,7 @@ async function saveProxyConfig() {
   const el = document.getElementById('collector-proxy');
   if (!el) return;
   const proxy = el.value.trim();
-  const msg = document.getElementById('epg-msg');
+  const msg = document.getElementById('proxy-msg');
   try {
     const resp = await fetch('/api/collector/proxy', {
       method: 'PUT',
@@ -590,7 +598,7 @@ async function saveEpgConfig() {
   const el = document.getElementById('epg-source');
   if (!el) return;
   const source = el.value.trim();
-  const msg = document.getElementById('epg-msg');
+  const msg = document.getElementById('proxy-msg');
   try {
     const resp = await fetch('/api/epg/config', {
       method: 'PUT',

@@ -43,8 +43,9 @@ async def fetch_epg() -> Optional[str]:
         "User-Agent": "LivePool/1.0",
         "Accept": "application/xml, text/xml, */*",
     }
+    proxy = load_config().get("collector", {}).get("proxy") or ""
     try:
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers, proxy=proxy or None) as session:
             async with session.get(url, allow_redirects=True) as resp:
                 if resp.status != 200:
                     logger.warning(f"EPG fetch returned HTTP {resp.status} from {url}")
