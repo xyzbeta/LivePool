@@ -40,7 +40,7 @@ scheduler:
 validator:
   concurrency: 50
   connect_timeout: 2
-  content_min_bytes: 256
+  content_min_bytes: 80
   deep_check: true
   proxy: null
   read_timeout: 8
