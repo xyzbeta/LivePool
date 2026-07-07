@@ -88,9 +88,7 @@
         <td><span class="url" title="{{ ch.url }}">{{ ch.url }}</span></td>
         <td style="font-size:12px;">{{ ch.last_check[:16] | replace('T', ' ') if ch.last_check else '-' }}</td>
         <td>
-          {% if ch.status.value == 'alive' %}
-          <button class="btn btn-sm btn-primary" onclick="openPlayer('{{ ch.url | e }}', '{{ ch.name | e }}')" style="font-size:11px;">▶</button>
-          {% endif %}
+          <button class="btn btn-sm {% if ch.status.value == 'alive' %}btn-primary{% else %}btn-outline{% endif %}" onclick="openPlayer('{{ ch.url | e }}', '{{ ch.name | e }}')" style="font-size:11px;" title="播放">▶</button>
         </td>
       </tr>
       {% endfor %}
