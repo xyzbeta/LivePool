@@ -1525,6 +1525,69 @@ async def api_toggle_local_seed(filename: str, request: Request, admin: dict = D
     return {"ok": True}
 
 
+@app.post("/api/local-seeds/upload")
+async def api_upload_local_seed(request: Request, admin: dict = Depends(require_admin)):
+    """Upload a local seed file (m3u/m3u8/txt only)."""
+    from urllib.parse import unquote
+
+    seeds_dir = PROJECT_ROOT / "data" / "sources"
+    seeds_dir.mkdir(parents=True, exist_ok=True)
+
+    form = await request.form()
+    file = form.get("file")
+    if not file or not hasattr(file, "filename") or not file.filename:
+        raise HTTPException(status_code=400, detail="请选择文件")
+
+    filename = file.filename.strip()
+    # Validate extension
+    allowed = (".m3u", ".m3u8", ".txt")
+    if not any(filename.lower().endswith(ext) for ext in allowed):
+        raise HTTPException(status_code=400, detail=f"仅支持 {', '.join(allowed)} 格式")
+
+    # Path traversal guard
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    content = await file.read()
+    if not content or len(content) < 4:
+        raise HTTPException(status_code=400, detail="文件内容为空")
+
+    # Check filename collision
+    file_path = seeds_dir / filename
+    _exists = file_path.exists()
+    file_path.write_bytes(content)
+    logger.info(f"Local seed {'overwritten' if _exists else 'uploaded'}: {filename} ({len(content)} bytes)")
+    return {"ok": True, "filename": filename, "overwritten": _exists}
+
+
+@app.delete("/api/local-seeds/{filename}")
+async def api_delete_local_seed(filename: str, admin: dict = Depends(require_admin)):
+    """Delete a local seed file."""
+    from urllib.parse import unquote
+
+    filename = unquote(filename)
+    seeds_dir = PROJECT_ROOT / "data" / "sources"
+    file_path = seeds_dir / filename
+
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path.unlink()
+    # Also clean up state
+    from .store import _get_db, _ensure_tables
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "local_seeds")
+        await db.execute("DELETE FROM local_seeds WHERE filename=?", (filename,))
+        await db.commit()
+    finally:
+        await db.close()
+    logger.info(f"Local seed deleted: {filename}")
+    return {"ok": True}
+
+
 @app.get("/api/sources/{source_id}")
 async def api_source_detail(source_id: str, admin: dict = Depends(require_admin)):
     store = get_sources_store()

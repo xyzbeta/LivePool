@@ -49,7 +49,11 @@
 <!-- Local seeds table (admin only) -->
 {% if user and user.role == 'admin' %}
 <div style="margin-top:24px;">
-  <h4 style="margin-bottom:12px;">📂 本地种子文件</h4>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <h4 style="margin:0;">📂 本地种子文件</h4>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('seed-upload-input').click()">+ 上传文件</button>
+    <input type="file" id="seed-upload-input" accept=".m3u,.m3u8,.txt" style="display:none;" multiple onchange="uploadLocalSeed(this)">
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -497,6 +501,46 @@ function showFlashMsg(msg) {
 }
 
 // ---- Local Seeds ----
+async function uploadLocalSeed(input) {
+  var files = input.files;
+  if (!files || !files.length) return;
+  var msg = document.getElementById('proxy-msg');
+  if (!msg) msg = document.getElementById('epg-msg');
+  for (var i = 0; i < files.length; i++) {
+    var fd = new FormData();
+    fd.append('file', files[i]);
+    try {
+      var resp = await fetch('/api/local-seeds/upload', { method: 'POST', body: fd });
+      var data = await resp.json();
+      if (resp.ok) {
+        showFlashMsg('✅ 已上传: ' + files[i].name);
+      } else {
+        showFlashMsg('❌ ' + files[i].name + ': ' + (data.detail || '失败'));
+      }
+    } catch(e) {
+      showFlashMsg('❌ ' + files[i].name + ': 网络错误');
+    }
+  }
+  input.value = '';
+  loadLocalSeeds();
+}
+async function deleteLocalSeed(filename) {
+  if (!confirm('确认删除 ' + filename + '？')) return;
+  try {
+    var resp = await fetch('/api/local-seeds/' + encodeURIComponent(filename), { method: 'DELETE' });
+    if (resp.ok) {
+      showFlashMsg('✅ 已删除: ' + filename);
+      loadLocalSeeds();
+    } else {
+      var data = await resp.json();
+      showFlashMsg('❌ ' + (data.detail || '删除失败'));
+    }
+  } catch(e) {
+    showFlashMsg('❌ 网络错误');
+  }
+}
+
+// ---- Local Seeds ----
 async function loadLocalSeeds() {
   try {
     const resp = await fetch('/api/local-seeds');
@@ -519,6 +563,7 @@ async function loadLocalSeeds() {
         '<td>' + (s.enabled ? '<span class="badge badge-alive">● 启用</span>' : '<span class="badge badge-other">○ 禁用</span>') + '</td>' +
         '<td>' +
           '<button class="btn btn-sm btn-outline" onclick="toggleLocalSeed(\'' + s.name + '\', ' + (!s.enabled) + ')">' + (s.enabled ? '禁用' : '启用') + '</button>' +
+          '<button class="btn btn-sm btn-outline" onclick="deleteLocalSeed(\'' + s.name + '\')" style="color:var(--danger);">删除</button>' +
         '</td></tr>';
     }).join('');
   } catch(e) {
