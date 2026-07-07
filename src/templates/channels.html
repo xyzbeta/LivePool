@@ -19,8 +19,14 @@
     <option value="yes" {% if favorite == 'yes' %}selected{% endif %}>已收藏</option>
     <option value="no" {% if favorite == 'no' %}selected{% endif %}>未收藏</option>
   </select>
+  <select name="source">
+    <option value="">全部来源</option>
+    {% for s in sources %}
+    <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s.split('/')[-1] if '/' in s else s }}</option>
+    {% endfor %}
+  </select>
   <button type="submit" class="btn btn-primary">🔍 筛选</button>
-  {% if group or status or search or favorite %}
+  {% if group or status or search or source or favorite %}
   <a href="/channels" class="btn btn-outline">✕ 清除</a>
   {% endif %}
   <a href="/api/m3u8{% if group %}/{{ group }}{% endif %}" class="btn btn-success" style="margin-left:auto;">
@@ -36,14 +42,14 @@
       <tr>
         <th style="width:36px;">图标</th>
         <th style="width:36px;text-align:center;">收藏</th>
-        <th><a href="?sort=name&order={{ 'desc' if sort == 'name' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">频道名 {{ '▼' if sort == 'name' and order == 'desc' else '▲' if sort == 'name' else '' }}</a></th>
+        <th><a href="?sort=name&order={{ 'desc' if sort == 'name' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">频道名 {{ '▼' if sort == 'name' and order == 'desc' else '▲' if sort == 'name' else '' }}</a></th>
         <th>分组</th>
         <th>状态</th>
-        <th><a href="?sort=latency&order={{ 'desc' if sort == 'latency' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">延迟 {{ '▼' if sort == 'latency' and order == 'desc' else '▲' if sort == 'latency' else '' }}</a></th>
-        <th><a href="?sort=resolution&order={{ 'desc' if sort == 'resolution' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">分辨率 {{ '▼' if sort == 'resolution' and order == 'desc' else '▲' if sort == 'resolution' else '' }}</a></th>
+        <th><a href="?sort=latency&order={{ 'desc' if sort == 'latency' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">延迟 {{ '▼' if sort == 'latency' and order == 'desc' else '▲' if sort == 'latency' else '' }}</a></th>
+        <th><a href="?sort=resolution&order={{ 'desc' if sort == 'resolution' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">分辨率 {{ '▼' if sort == 'resolution' and order == 'desc' else '▲' if sort == 'resolution' else '' }}</a></th>
         <th>质量</th>
         <th>URL</th>
-        <th><a href="?sort=last_check&order={{ 'desc' if sort == 'last_check' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">最后检测 {{ '▼' if sort == 'last_check' and order == 'desc' else '▲' if sort == 'last_check' else '' }}</a></th>
+        <th><a href="?sort=last_check&order={{ 'desc' if sort == 'last_check' and order == 'asc' else 'asc' }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}" style="color:inherit;text-decoration:none;">最后检测 {{ '▼' if sort == 'last_check' and order == 'desc' else '▲' if sort == 'last_check' else '' }}</a></th>
         <th></th>
       </tr>
     </thead>
@@ -100,17 +106,17 @@
 {% if pages > 1 %}
 <div class="pagination">
   {% if page > 1 %}
-  <a href="?page={{ page-1 }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}">‹</a>
+  <a href="?page={{ page-1 }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}">‹</a>
   {% endif %}
   {% for p in range(1, pages + 1) %}
     {% if p <= 3 or p > pages - 3 or (p >= page - 1 and p <= page + 1) %}
-    <a href="?page={{ p }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}" {% if p == page %}class="active"{% endif %}>{{ p }}</a>
+    <a href="?page={{ p }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}" {% if p == page %}class="active"{% endif %}>{{ p }}</a>
     {% elif p == 4 or p == pages - 3 %}
     <span>…</span>
     {% endif %}
   {% endfor %}
   {% if page < pages %}
-  <a href="?page={{ page+1 }}&status={{ status }}&search={{ search }}&favorite={{ favorite }}">›</a>
+  <a href="?page={{ page+1 }}&status={{ status }}&search={{ search }}&source={{ source }}&favorite={{ favorite }}">›</a>
   {% endif %}
 </div>
 {% endif %}

@@ -1251,6 +1251,7 @@ async def api_channels(
     group: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    source: Optional[str] = Query(None),
     sort: Optional[str] = Query(None, description="Sort field: name, latency, resolution, last_check"),
     order: Optional[str] = Query("asc", description="asc or desc"),
     page: int = Query(1, ge=1),
@@ -1260,6 +1261,8 @@ async def api_channels(
     channels = _get_channels()
     if group:
         channels = [c for c in channels if c.group == group]
+    if source:
+        channels = [c for c in channels if c.source == source]
     if status:
         channels = [c for c in channels if c.status.value == status]
     if search:
@@ -1302,6 +1305,14 @@ async def api_channel_detail(channel_id: str, user: dict = Depends(get_current_u
 # ===========================================================================
 # FAVORITES
 # ===========================================================================
+
+
+@app.get("/api/channel-sources")
+async def api_channel_sources(user: dict = Depends(get_current_user)):
+    """List unique channel sources for the filter dropdown."""
+    channels = _get_channels()
+    sources = sorted(set(ch.source for ch in channels if ch.source))
+    return {"sources": sources}
 
 
 @app.get("/api/channels/{channel_id}/favorite")
@@ -1575,17 +1586,20 @@ async def api_delete_local_seed(filename: str, admin: dict = Depends(require_adm
         raise HTTPException(status_code=404, detail="File not found")
 
     file_path.unlink()
-    # Also clean up state
+    # Delete associated channels
     from .store import _get_db, _ensure_tables
     db = await _get_db()
     try:
+        await _ensure_tables(db, "channels")
+        cursor = await db.execute("DELETE FROM channels WHERE source=?", (str(file_path),))
+        deleted = cursor.rowcount
         await _ensure_tables(db, "local_seeds")
         await db.execute("DELETE FROM local_seeds WHERE filename=?", (filename,))
         await db.commit()
     finally:
         await db.close()
-    logger.info(f"Local seed deleted: {filename}")
-    return {"ok": True}
+    logger.info(f"Local seed '{filename}' deleted, {deleted} channels removed")
+    return {"ok": True, "channels_deleted": deleted}
 
 
 @app.get("/api/sources/{source_id}")
@@ -1633,10 +1647,26 @@ async def api_update_source(source_id: str, request: Request, admin: dict = Depe
 @app.delete("/api/sources/{source_id}")
 async def api_delete_source(source_id: str, admin: dict = Depends(require_admin)):
     store = get_sources_store()
-    if not store.get(source_id):
+    source = store.get(source_id)
+    if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    # Delete associated channels by source URL
+    from .store import _get_db, _ensure_tables
+    db = await _get_db()
+    try:
+        await _ensure_tables(db, "channels")
+        total_deleted = 0
+        for url in source.get("urls", []):
+            cursor = await db.execute("DELETE FROM channels WHERE source=?", (url,))
+            total_deleted += cursor.rowcount
+        await db.commit()
+    finally:
+        await db.close()
+
     store.delete(source_id)
-    return {"ok": True}
+    logger.info(f"Source '{source['name']}' deleted, {total_deleted} channels removed")
+    return {"ok": True, "channels_deleted": total_deleted}
 
 
 @app.post("/api/sources/{source_id}/fetch")
@@ -1894,7 +1924,8 @@ async def page_dashboard(request: Request, user: dict = Depends(get_current_user
 async def page_channels(
     request: Request,
     group: Optional[str] = None, status: Optional[str] = None,
-    search: Optional[str] = None, sort: Optional[str] = None, order: Optional[str] = "asc",
+    search: Optional[str] = None, source: Optional[str] = None,
+    sort: Optional[str] = None, order: Optional[str] = "asc",
     favorite: Optional[str] = None,
     page: int = 1,
     user: dict = Depends(get_current_user),
@@ -1903,6 +1934,7 @@ async def page_channels(
     stats = await _get_stats()
     if group: channels = [c for c in channels if c.group == group]
     if status: channels = [c for c in channels if c.status.value == status]
+    if source: channels = [c for c in channels if c.source == source]
     if search:
         sl = search.lower()
         channels = [c for c in channels if sl in c.name.lower() or sl in c.url.lower()]
@@ -1935,13 +1967,17 @@ async def page_channels(
         ch._logo_url = _get_cached_logo_url(ch)
         ch._is_favorited = ch.id in fav_ids
     pages = max(1, (total + size - 1) // size) if total > 0 else 1
+    # Unique sources for filter dropdown
+    all_sources = sorted(set(ch.source for ch in _get_channels() if ch.source))
     return _render("channels.html", {
         "request": request, "channels": page_data, "total": total,
         "page": page, "pages": pages, "group": group or "",
         "status": status or "", "search": search or "",
+        "source": source or "",
         "favorite": favorite or "",
         "sort": sort or "", "order": order or "asc",
-        "groups": list(stats.groups.keys()), "title": "频道列表", "user": user,
+        "groups": list(stats.groups.keys()), "title": "频道列表",
+        "user": user, "sources": all_sources,
     })
 
 
