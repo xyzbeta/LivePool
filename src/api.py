@@ -1262,7 +1262,12 @@ async def api_channels(
     if group:
         channels = [c for c in channels if c.group == group]
     if source:
-        channels = [c for c in channels if c.source and c.source.endswith(source)]
+        # Build reverse mapping: display name → all matching source values
+        _rev = {}
+        for _src, _name in _get_source_display_map().items():
+            _rev.setdefault(_name, []).append(_src)
+        _source_values = _rev.get(source, [])
+        channels = [c for c in channels if c.source and c.source in _source_values]
     if status:
         channels = [c for c in channels if c.status.value == status]
     if search:
@@ -1307,16 +1312,60 @@ async def api_channel_detail(channel_id: str, user: dict = Depends(get_current_u
 # ===========================================================================
 
 
+def _get_source_display_map() -> dict:
+    """Build a mapping of source values → display names for the filter dropdown.
+
+    For online crawlers: source URL → the crawler's configured name (e.g. "咪咕TV直播源")
+    For local seed files: file path → filename (e.g. "guovin_iptv.m3u")
+    """
+    from pathlib import Path
+    mapping = {}
+
+    # Online crawler sources from DB store
+    try:
+        src_store = get_sources_store()
+        for s in src_store.all():
+            name = s.get("name", "")
+            for url in s.get("urls", []):
+                if url:
+                    mapping[url] = name
+    except Exception:
+        pass
+
+    # Also from config.yaml (fallback for sources not yet migrated to DB)
+    try:
+        from .config import load_config
+        cfg = load_config()
+        for c in cfg.get("collector", {}).get("crawlers", []):
+            name = c.get("name", "")
+            for url in c.get("urls", []):
+                if url and url not in mapping:
+                    mapping[url] = name
+    except Exception:
+        pass
+
+    # Local seed files
+    seeds_dir = PROJECT_ROOT / "data" / "sources"
+    if seeds_dir.exists():
+        for f in seeds_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in (".m3u", ".m3u8", ".txt"):
+                mapping[str(f)] = f.name
+
+    return mapping
+
+
 @app.get("/api/channel-sources")
 async def api_channel_sources(user: dict = Depends(get_current_user)):
-    """List unique channel source filenames for the filter dropdown."""
-    from pathlib import Path
+    """List unique channel source display names for the filter dropdown."""
+    mapping = _get_source_display_map()
     channels = _get_channels()
-    sources = sorted(set(
-        Path(ch.source).name if "/" in ch.source else ch.source
-        for ch in channels if ch.source
-    ))
-    return {"sources": sources}
+    names = set()
+    for ch in channels:
+        if ch.source:
+            display = mapping.get(ch.source, ch.source.rsplit("/", 1)[-1] if "/" in ch.source else ch.source)
+            if display:
+                names.add(display)
+    return {"sources": sorted(names)}
 
 
 @app.get("/api/channels/{channel_id}/favorite")
@@ -1938,7 +1987,12 @@ async def page_channels(
     stats = await _get_stats()
     if group: channels = [c for c in channels if c.group == group]
     if status: channels = [c for c in channels if c.status.value == status]
-    if source: channels = [c for c in channels if c.source and c.source.endswith(source)]
+    if source:
+        _rev = {}
+        for _src, _name in _get_source_display_map().items():
+            _rev.setdefault(_name, []).append(_src)
+        _source_values = _rev.get(source, [])
+        channels = [c for c in channels if c.source and c.source in _source_values]
     if search:
         sl = search.lower()
         channels = [c for c in channels if sl in c.name.lower() or sl in c.url.lower()]
@@ -1971,10 +2025,10 @@ async def page_channels(
         ch._logo_url = _get_cached_logo_url(ch)
         ch._is_favorited = ch.id in fav_ids
     pages = max(1, (total + size - 1) // size) if total > 0 else 1
-    # Unique source filenames for filter dropdown
-    from pathlib import Path as _Path
+    # Unique source display names for filter dropdown
+    _src_map = _get_source_display_map()
     all_sources = sorted(set(
-        _Path(ch.source).name if "/" in ch.source else ch.source
+        _src_map.get(ch.source, ch.source.rsplit("/", 1)[-1] if "/" in ch.source else ch.source)
         for ch in _get_channels() if ch.source
     ))
     return _render("channels.html", {
