@@ -22,7 +22,7 @@
   <select name="source">
     <option value="">全部来源</option>
     {% for s in sources %}
-    <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s.split('/')[-1] if '/' in s else s }}</option>
+    <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s }}</option>
     {% endfor %}
   </select>
   <button type="submit" class="btn btn-primary">🔍 筛选</button>

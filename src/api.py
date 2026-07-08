@@ -1262,7 +1262,7 @@ async def api_channels(
     if group:
         channels = [c for c in channels if c.group == group]
     if source:
-        channels = [c for c in channels if c.source == source]
+        channels = [c for c in channels if c.source and c.source.endswith(source)]
     if status:
         channels = [c for c in channels if c.status.value == status]
     if search:
@@ -1309,9 +1309,13 @@ async def api_channel_detail(channel_id: str, user: dict = Depends(get_current_u
 
 @app.get("/api/channel-sources")
 async def api_channel_sources(user: dict = Depends(get_current_user)):
-    """List unique channel sources for the filter dropdown."""
+    """List unique channel source filenames for the filter dropdown."""
+    from pathlib import Path
     channels = _get_channels()
-    sources = sorted(set(ch.source for ch in channels if ch.source))
+    sources = sorted(set(
+        Path(ch.source).name if "/" in ch.source else ch.source
+        for ch in channels if ch.source
+    ))
     return {"sources": sources}
 
 
@@ -1934,7 +1938,7 @@ async def page_channels(
     stats = await _get_stats()
     if group: channels = [c for c in channels if c.group == group]
     if status: channels = [c for c in channels if c.status.value == status]
-    if source: channels = [c for c in channels if c.source == source]
+    if source: channels = [c for c in channels if c.source and c.source.endswith(source)]
     if search:
         sl = search.lower()
         channels = [c for c in channels if sl in c.name.lower() or sl in c.url.lower()]
@@ -1967,8 +1971,12 @@ async def page_channels(
         ch._logo_url = _get_cached_logo_url(ch)
         ch._is_favorited = ch.id in fav_ids
     pages = max(1, (total + size - 1) // size) if total > 0 else 1
-    # Unique sources for filter dropdown
-    all_sources = sorted(set(ch.source for ch in _get_channels() if ch.source))
+    # Unique source filenames for filter dropdown
+    from pathlib import Path as _Path
+    all_sources = sorted(set(
+        _Path(ch.source).name if "/" in ch.source else ch.source
+        for ch in _get_channels() if ch.source
+    ))
     return _render("channels.html", {
         "request": request, "channels": page_data, "total": total,
         "page": page, "pages": pages, "group": group or "",
